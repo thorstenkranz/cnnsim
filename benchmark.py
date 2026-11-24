@@ -46,9 +46,9 @@ def bench_one(cfg: str, size: int, batch: int, min_time: float, chunk: int) -> f
     u = torch.rand(batch, size, size, generator=g) * 2 - 1
     A = torch.randn(3, 3, generator=g) * 0.3
     B = torch.randn(3, 3, generator=g) * 0.3
-    x, bias, A, boundary = sim.prepare(None, u, A=A, B=B, z=0.0, boundary=Boundary("zeroflux"))
+    p = sim.prepare(None, u, A=A, B=B, z=0.0, boundary=Boundary("zeroflux"))
 
-    advance = sim.stepper(x, bias, A, boundary, dt=0.1)
+    advance = sim.stepper(p, dt=0.1)
     for _ in range(3):  # warm-up: compilation, autotune, cuDNN algorithm selection
         advance()
     sync(device)

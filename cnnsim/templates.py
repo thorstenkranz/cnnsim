@@ -5,7 +5,8 @@ black = +1, white = -1. Run conventions (initial state, boundary) are stored wit
 template. These are checked by tests/test_templates.py on synthetic images.
 """
 
-from .simulator import Boundary, Template
+from .boundary import Boundary
+from .simulator import Template
 
 _Z = [[0, 0, 0], [0, 0, 0], [0, 0, 0]]
 

@@ -1,6 +1,6 @@
 [project]
 name = "cnnsim"
-version = "0.1.0"
+version = "0.2.0"
 description = "Chua–Yang cellular neural networks in PyTorch: GPU simulation and training"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -25,6 +25,7 @@ packages = ["cnnsim"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["slow: takes more than a few seconds"]
 
 # Development environment only: CUDA 13 wheels (RTX 50xx needs CUDA >= 12.8).
 # Consumers of the wheel choose their own torch build.

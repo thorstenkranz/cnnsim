@@ -1,15 +1,15 @@
 # cnnsim: Chua–Yang cellular neural networks in PyTorch
 
 ```
-dx/dt = -x + A ⊛ y + B ⊛ u + z,     y = clip(x, -1, 1)      (black = +1, white = -1)
+dx/dt = -x + A ⊛ y + B ⊛ u + z,     y = f(x)   (default f = clip(x, -1, 1); black = +1, white = -1)
 ```
 
 ## Setup
 
 ```bash
-uv venv --python 3.12 .venv
-uv pip install --python .venv torch --index-url https://download.pytorch.org/whl/cu130   # RTX 50xx needs CUDA >= 12.8
-uv pip install --python .venv numpy matplotlib pillow pytest
+uv sync                      # torch from the CUDA 13 index (RTX 50xx needs CUDA >= 12.8), dev tools
+uv run python -m pytest -q
+uv build --wheel             # dist/cnnsim-<version>-py3-none-any.whl for use in other projects
 ```
 
 ## Usage
@@ -26,9 +26,66 @@ y = r["y"]                                                 # output, plus r["x"]
 my = Template(A=[[0,0,0],[0,2,0],[0,0,0]], B=[[0,0,0],[0,1,0],[0,0,0]], z=0.5,
               x0="input", boundary=Boundary("zeroflux"))
 
-# per-sample templates (e.g. a parameter sweep): A, B of shape (N,3,3), z of shape (N,)
+# per-sample templates (e.g. a parameter sweep): A, B of shape (N,k,k), z of shape (N,)
 r = sim.run(None, u, A=A_batch, B=B_batch, z=z_batch, boundary=Boundary("fixed", -1))
+
+# generalised model: any odd k×k (A and B may differ), output functions, closed-spiral
+# boundary, separate input boundary, bias map z of shape (H,W)
+from cnnsim import Output
+r = sim.run(None, u, A=A5x5, B=B3x3, z=zmap, x0="input",
+            boundary=Boundary("spiral"), boundary_u=Boundary("fixed", 0.0),
+            output=Output("sigmoid", beta=1.0))
 ```
+
+### Model options
+
+| | options |
+|---|---|
+| boundary | `fixed` (Dirichlet, `value`), `zeroflux` (Neumann), `periodic` (torus), `spiral` (closed spiral: row-major ring, neighbour of flat index p at (di,dj) is p + di·W + dj mod HW) |
+| output `Output(kind, beta)` | `pwl` clip(x) · `sigmoid` 2/(1+e^(−βx))−1 · `tanh` tanh(βx) · `sign` (surrogate gradient of clip(βx)) · `identity` |
+| templates | odd k×k, A and B independent; shared or per sample |
+| bias z | scalar, per sample (N,), or map (H,W) / (N,1,H,W) |
+| initial state | `zero`, `input`, `ones`, `minus_ones`, or a tensor |
+
+### Differentiable core
+
+`cnnsim.dynamics` (`correlate`, `bias_map`, `derivative`, `make_steps`) consists of pure tensor
+functions; gradients flow through the whole integration (checked by `torch.autograd.gradcheck`
+in the tests). `CNNSimulator` is the fast no-grad path on top of the same functions.
+
+## Training templates
+
+Templates are learned by backpropagation through the dynamics (exact gradients of the
+Euler/RK4 integration, memory bounded by gradient checkpointing). Every template carries a
+population dimension P: P independent candidates (multi-start) are trained simultaneously
+in one batched simulation of P × D grids.
+
+```python
+from cnnsim import Boundary, Output
+from cnnsim.params import TemplateParams, TemplateSpec
+from cnnsim.train import Dynamics, fit, simulate
+from cnnsim.losses import image_loss
+
+dyn = Dynamics(boundary=Boundary("fixed", -1.0), output=Output("tanh"), steps=60, dt=0.2,
+               x0="zero", compile=True)
+spec = TemplateSpec(size_A=3, size_B=3, sym_A="isotropic", sym_B="none")   # 3 + 9 + 1 free parameters
+params = TemplateParams(spec, population=16, device="cuda")
+res = fit(params, image_loss("mse"), {"u": u, "target": y_ref}, dyn,
+          val={"u": u_val, "target": y_val}, epochs=300, lr=0.05)
+A, B, z = res.best()           # (16,3,3), (16,3,3), (16,): best parameters per candidate
+```
+
+* `TemplateSpec`: template sizes, symmetry (`none`, `central`, `mirror_lr`, `mirror_ud`,
+  `mirror`, `rot90`, `isotropic`), masks, and which of A, B, z are learned. One free parameter
+  per orbit of template cells under the symmetry group, so constraints hold exactly.
+* `fit`: AdamW, cosine schedule, per-candidate gradient clipping, minibatches, optional
+  convergence penalty (`settle_weight` × mean |dx/dt| at the end), best-per-candidate tracking
+  on validation data. Any loss `loss_fn(y (P,D,1,H,W), batch) -> (P,)` works.
+* `cnnsim.losses`: per-image `mse`, `msen` (SCNN normalised MSE), `mae`, `pixel_error_rate`,
+  read-out `mean_output`, aggregations over samples (`mean`, `max`, `rms`, `harmonic`).
+* `cnnsim.optim`: gradient-free baselines with batched evaluation — `simulated_annealing`
+  (parallel chains) and `cmaes`; `objective(params, loss_fn, data, dyn)` turns a training
+  problem into f: (Q, n_free) -> (Q,).
 
 * `backend="stencil"` (default) writes the 3x3 correlation as 9 shifted multiply-adds; with
   `compile=True` the whole Euler step (pad + stencil + clip + update) becomes **one fused kernel**.
@@ -38,7 +95,8 @@ r = sim.run(None, u, A=A_batch, B=B_batch, z=z_batch, boundary=Boundary("fixed",
 * `integrator="rk4"` is available; Euler with dt 0.1–0.2 is the classic choice.
 * Boundaries: `fixed` (Dirichlet, with value), `zeroflux`, `periodic`.
 
-Files: `cnnsim/simulator.py` (core), `cnnsim/templates.py` (edge, edge_gray, corner, inversion,
+Files: `cnnsim/dynamics.py` (differentiable core), `cnnsim/boundary.py`, `cnnsim/outputs.py`,
+`cnnsim/simulator.py` (fast simulator), `cnnsim/templates.py` (edge, edge_gray, corner, inversion,
 threshold, hole_fill, shadow_left, ccd_horizontal, average), `demo.py` → `output/templates.png`,
 `benchmark.py`, `tests/`.
 
