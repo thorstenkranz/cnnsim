@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+- Fused Triton backend (`cnnsim.fused`, `backend="fused"`): forward kernel with the state on chip
+  and a discrete-adjoint backward kernel; 4× faster training (3×3), 20–30× faster evaluation.
+  Optional dependency on Triton (bundled with CUDA builds of PyTorch); CPU and unsupported
+  configurations fall back to the stencil path.
+
 ## 0.2.0
 - Generalised model: odd k×k templates (A and B independent), output functions
   (`Output`: pwl, sigmoid(β), tanh(β), sign with surrogate gradient, identity),

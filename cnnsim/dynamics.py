@@ -17,7 +17,7 @@ import torch.nn.functional as F
 from .boundary import Boundary
 from .outputs import Output
 
-Backend = Literal["stencil", "conv"]
+Backend = Literal["stencil", "conv", "fused"]
 Integrator = Literal["euler", "rk4"]
 
 

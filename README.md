@@ -53,6 +53,26 @@ r = sim.run(None, u, A=A5x5, B=B3x3, z=zmap, x0="input",
 functions; gradients flow through the whole integration (checked by `torch.autograd.gradcheck`
 in the tests). `CNNSimulator` is the fast no-grad path on top of the same functions.
 
+## Fused backend (Triton)
+
+`backend="fused"` (in `CNNSimulator` and `train.Dynamics`) integrates with hand-written Triton
+kernels: one program per grid, the state kept in registers for all steps, boundaries (incl. the
+spiral) as index arithmetic. Training uses a hand-written discrete adjoint (backward pass through
+the Euler steps) instead of autograd. Values and gradients agree with the stencil path to float32
+rounding (`tests/test_fused.py`). Euler only, odd k ≤ 7, H·W ≤ 16384; other cases fall back to
+the stencil path automatically. For training with k > 3 the compiled stencil path is used
+(faster there); forward passes use the fused kernels for every k.
+
+Training at the size of the thesis experiments — 16 candidates × 200 series of 64×64, minibatches
+of 50, 200 Euler steps, spiral boundary, sigmoid (RTX 5060 Ti):
+
+| | compiled stencil | fused |
+|---|---|---|
+| 3×3, training epoch | 0.74 s | **0.18 s** (4.1×) |
+| 3×3, evaluating 16 × 200 series | 1.44 s | **0.05 s** (29×) |
+| 5×5, training epoch | 0.84 s | (stencil used) |
+| 5×5, evaluating 16 × 200 series | 2.53 s | **0.12 s** (21×) |
+
 ## Training templates
 
 Templates are learned by backpropagation through the dynamics (exact gradients of the

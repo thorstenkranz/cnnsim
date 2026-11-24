@@ -22,6 +22,7 @@ from typing import Callable, Literal
 import torch
 from torch.utils.checkpoint import checkpoint
 
+from . import fused
 from .boundary import Boundary
 from .dynamics import Integrator, bias_map, derivative, make_steps
 from .outputs import PWL, Output
@@ -43,6 +44,9 @@ class Dynamics:
     x0: X0 = "input"
     checkpoint_every: int = 20  # steps per checkpointed chunk (0 = no checkpointing)
     compile: bool = False  # torch.compile the step chunks (forward and backward)
+    # "fused": Triton kernels (Euler only, see cnnsim.fused) for all forward passes and for
+    # training with k <= fused.MAX_K_BACKWARD; otherwise the stencil path (set compile=True)
+    backend: Literal["stencil", "fused"] = "stencil"
 
 
 _STEP_CACHE: dict = {}
@@ -83,6 +87,19 @@ def simulate(
     rep = lambda t: t.repeat_interleave(D, dim=0)  # noqa: E731  (P,...) -> (P*D,...)
     bias = bias_map(uu, rep(B), rep(z).reshape(-1, 1, 1, 1), dyn.boundary_u or dyn.boundary)
     AA = rep(A)
+
+    use_fused = dyn.backend == "fused" and dyn.integrator == "euler" and fused.supported(
+        dyn.boundary, dyn.output, AA.shape[-1], *xx.shape[-2:], xx.device
+    )
+    grad = torch.is_grad_enabled() and (A.requires_grad or B.requires_grad or z.requires_grad)
+    if use_fused and grad and AA.shape[-1] > fused.MAX_K_BACKWARD:
+        use_fused = False  # training with large templates: the compiled stencil path is faster
+    if use_fused:
+        x = fused.integrate(xx, bias, AA, dyn.boundary, dyn.output, dyn.steps, dyn.dt)
+        y = dyn.output(x).reshape(P, D, *shp)
+        if return_state:
+            return y, x.reshape(P, D, *shp), bias.reshape(P, D, *shp)
+        return y
 
     k = dyn.checkpoint_every or dyn.steps
     x = xx

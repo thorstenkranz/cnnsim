@@ -23,6 +23,7 @@ from typing import Callable, Literal
 import torch
 import torch._dynamo
 
+from . import fused
 from .boundary import Boundary
 from .dynamics import Backend, Integrator, as_template_batch, bias_map, correlate, make_steps
 from .outputs import PWL, Output
@@ -121,7 +122,9 @@ class CNNSimulator:
     Args:
         device: "cuda", "cpu", ... (default: cuda if available)
         dtype: float32 is plenty for CNN dynamics
-        backend: "stencil" (fusable, default) or "conv"
+        backend: "stencil" (fusable, default), "conv", or "fused" (Triton kernel integrating
+            `chunk` Euler steps per launch with the state kept on chip; GPU, Euler only;
+            unsupported configurations fall back to "stencil")
         integrator: "euler" (classic for CNN, dt ~ 0.1-0.2) or "rk4"
         compile: wrap the inner step loop with torch.compile
         cuda_graph: capture `chunk` steps as one CUDA graph (GPU only). Removes almost
@@ -191,7 +194,7 @@ class CNNSimulator:
         n = max(u.shape[0], A.shape[0], B.shape[0], z.shape[0])
         if u.shape[0] != n:
             u = u.expand(n, -1, -1, -1)
-        bias = bias_map(u, B, z, boundary_u, self.backend)
+        bias = bias_map(u, B, z, boundary_u, "conv" if self.backend == "conv" else "stencil")
         bias = bias.expand(n, -1, -1, -1).contiguous()
         x = initial_state(x0, u).expand(n, -1, -1, -1).contiguous()
         return Prepared(x, bias, A, boundary, output)
@@ -201,7 +204,7 @@ class CNNSimulator:
     def _get_steps(self, boundary: Boundary, out: Output, k: int) -> Callable:
         key = (boundary, out, k)
         if key not in self._compiled:
-            fn = make_steps(boundary, out, k, self.integrator, self.backend)
+            fn = make_steps(boundary, out, k, self.integrator, "conv" if self.backend == "conv" else "stencil")
             if self.compile:
                 fn = torch.compile(fn, dynamic=False)
             self._compiled[key] = fn
@@ -284,6 +287,19 @@ class CNNSimulator:
         advance.state() gives the current state. Building the stepper does the
         compilation / graph capture once, so repeated advance() calls are cheap.
         """
+        if self.backend == "fused" and self.integrator == "euler" and fused.supported(
+            p.boundary, p.output, p.A.shape[-1], *p.x.shape[-2:], p.x.device
+        ):
+            cur = [p.x]
+            k, bias, A = self.chunk, p.bias, p.A
+
+            def advance():
+                cur[0] = fused.forward(cur[0], bias, A, p.boundary, p.output, k, dt)[0]
+                return cur[0]
+
+            advance.state = lambda: cur[0]  # type: ignore[attr-defined]
+            return advance
+
         if self.cuda_graph:
             replay = self._graph_runner(p, dt)
             st = replay.state
