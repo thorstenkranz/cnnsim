@@ -8,7 +8,7 @@ import torch
 from cnnsim import Boundary, CNNSimulator, Output, make_steps
 from cnnsim import fused
 from cnnsim.losses import mean_output
-from cnnsim.params import TemplateParams
+from cnnsim.params import TemplateParams, TemplateSpec
 from cnnsim.train import Dynamics, simulate
 
 pytestmark = pytest.mark.skipif(not (torch.cuda.is_available() and fused.HAVE_TRITON), reason="needs CUDA + Triton")
@@ -82,3 +82,24 @@ def test_unsupported_configuration_falls_back():
     assert not fused.supported(Boundary("spiral"), Output("pwl"), 9, 64, 64)  # k > 7
     assert not fused.supported(Boundary("spiral"), Output("pwl"), 3, 256, 256)  # too many cells
     assert not fused.supported(Boundary("spiral"), Output("pwl"), 3, 64, 64, "cpu")
+
+
+def test_training_policy_per_boundary():
+    assert fused.prefer_for_training(Boundary("spiral"), 3)
+    assert not fused.prefer_for_training(Boundary("spiral"), 5)
+    for kind in ("fixed", "zeroflux", "periodic"):
+        assert fused.prefer_for_training(Boundary(kind), 5)
+
+
+@pytest.mark.parametrize("bkind", ["zeroflux", "fixed"])
+def test_train_simulate_fused_k5(bkind):
+    """k = 5 training through the fused backward matches the stencil path."""
+    u = torch.rand(4, 1, 16, 16, device=DEV) * 2 - 1
+    grads = []
+    for backend in ("stencil", "fused"):
+        dyn = Dynamics(boundary=Boundary(bkind), output=Output("sigmoid"), steps=40, dt=0.2, backend=backend)
+        p = TemplateParams(TemplateSpec(size_A=5, size_B=5), population=2, scale=0.2,
+                           generator=torch.Generator().manual_seed(1), device=DEV)
+        mean_output(simulate(p(), u, dyn)).pow(2).sum().backward()
+        grads.append(torch.cat([q.grad.flatten() for q in p.parameters()]))
+    torch.testing.assert_close(grads[1], grads[0], atol=1e-4, rtol=1e-3)

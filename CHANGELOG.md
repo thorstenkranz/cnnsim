@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1
+- Fused training policy depends on the boundary (`fused.prefer_for_training`): for k > 3 the
+  fused backward is now used with fixed / zeroflux / periodic boundaries (2.4–16× faster than
+  the compiled stencil path there); spiral keeps the compiled path.
+
 ## 0.3.0
 - Fused Triton backend (`cnnsim.fused`, `backend="fused"`): forward kernel with the state on chip
   and a discrete-adjoint backward kernel; 4× faster training (3×3), 20–30× faster evaluation.

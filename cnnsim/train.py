@@ -45,7 +45,7 @@ class Dynamics:
     checkpoint_every: int = 20  # steps per checkpointed chunk (0 = no checkpointing)
     compile: bool = False  # torch.compile the step chunks (forward and backward)
     # "fused": Triton kernels (Euler only, see cnnsim.fused) for all forward passes and for
-    # training with k <= fused.MAX_K_BACKWARD; otherwise the stencil path (set compile=True)
+    # training where fused.prefer_for_training(); otherwise the stencil path (set compile=True)
     backend: Literal["stencil", "fused"] = "stencil"
 
 
@@ -92,7 +92,7 @@ def simulate(
         dyn.boundary, dyn.output, AA.shape[-1], *xx.shape[-2:], xx.device
     )
     grad = torch.is_grad_enabled() and (A.requires_grad or B.requires_grad or z.requires_grad)
-    if use_fused and grad and AA.shape[-1] > fused.MAX_K_BACKWARD:
+    if use_fused and grad and not fused.prefer_for_training(dyn.boundary, AA.shape[-1]):
         use_fused = False  # training with large templates: the compiled stencil path is faster
     if use_fused:
         x = fused.integrate(xx, bias, AA, dyn.boundary, dyn.output, dyn.steps, dyn.dt)

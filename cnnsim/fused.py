@@ -28,9 +28,16 @@ from .outputs import Output
 _BOUND = {"fixed": 0, "zeroflux": 1, "periodic": 2, "spiral": 3}
 _OUT = {"pwl": 0, "sigmoid": 1, "tanh": 2, "identity": 3, "sign": 4}
 MAX_CELLS = 16384
-# Training (backward) is used only up to this template size: the dA reductions grow with k²
-# and for k = 5 the compiled stencil path is faster (measured on an RTX 5060 Ti).
-MAX_K_BACKWARD = 3
+# Training (backward): the dA reductions grow with k². For k > 3 the compiled stencil path is
+# faster only with the spiral boundary (its padding compiles well); with fixed / zeroflux /
+# periodic padding the compiled k = 5 path is 2.4-16x slower than fused (RTX 5060 Ti, 64x64).
+MAX_K_BACKWARD = 3  # applies to the boundaries in COMPILED_PREFERRED only
+COMPILED_PREFERRED = frozenset({"spiral"})
+
+
+def prefer_for_training(boundary: Boundary, k: int) -> bool:
+    """Whether the fused backward is the faster choice for training with this boundary and k."""
+    return k <= MAX_K_BACKWARD or boundary.kind not in COMPILED_PREFERRED
 
 
 # --------------------------------------------------------------------------- host side

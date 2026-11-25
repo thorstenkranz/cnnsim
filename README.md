@@ -60,8 +60,11 @@ kernels: one program per grid, the state kept in registers for all steps, bounda
 spiral) as index arithmetic. Training uses a hand-written discrete adjoint (backward pass through
 the Euler steps) instead of autograd. Values and gradients agree with the stencil path to float32
 rounding (`tests/test_fused.py`). Euler only, odd k ≤ 7, H·W ≤ 16384; other cases fall back to
-the stencil path automatically. For training with k > 3 the compiled stencil path is used
-(faster there); forward passes use the fused kernels for every k.
+the stencil path automatically. Training with k > 3 and the spiral boundary uses the compiled
+stencil path (faster there); for the other boundaries the compiled k = 5 path is slow (the
+`F.pad` modes do not fuse well) and the fused backward is used: per minibatch of 16 × 50 series,
+5×5, 0.29 vs 4.8 s (fixed), 0.27 vs 4.4 s (periodic), 1.8 vs 4.4 s (zeroflux). Forward passes use
+the fused kernels for every k. Policy: `fused.prefer_for_training(boundary, k)`.
 
 Training at the size of the thesis experiments — 16 candidates × 200 series of 64×64, minibatches
 of 50, 200 Euler steps, spiral boundary, sigmoid (RTX 5060 Ti):
@@ -70,7 +73,7 @@ of 50, 200 Euler steps, spiral boundary, sigmoid (RTX 5060 Ti):
 |---|---|---|
 | 3×3, training epoch | 0.74 s | **0.18 s** (4.1×) |
 | 3×3, evaluating 16 × 200 series | 1.44 s | **0.05 s** (29×) |
-| 5×5, training epoch | 0.84 s | (stencil used) |
+| 5×5, training epoch | 0.84 s | (stencil used for spiral) |
 | 5×5, evaluating 16 × 200 series | 2.53 s | **0.12 s** (21×) |
 
 ## Training templates

@@ -1,6 +1,6 @@
 [project]
 name = "cnnsim"
-version = "0.3.0"
+version = "0.3.1"
 description = "Chua–Yang cellular neural networks in PyTorch: GPU simulation and training"
 readme = "README.md"
 requires-python = ">=3.12"
