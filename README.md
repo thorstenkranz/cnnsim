@@ -1,5 +1,8 @@
 # cnnsim: Chua–Yang cellular neural networks in PyTorch
 
+[![tests](https://github.com/thorstenkranz/cnnsim/actions/workflows/tests.yml/badge.svg)](https://github.com/thorstenkranz/cnnsim/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 ```
 dx/dt = -x + A ⊛ y + B ⊛ u + z,     y = f(x)   (default f = clip(x, -1, 1); black = +1, white = -1)
 ```
@@ -149,3 +152,7 @@ Takeaways:
   so at best a few Gcell/s – still well below the GPU path.
 
 Note: `torch.compile` specialises on shape; the first run of a new size compiles for a few seconds.
+
+## License
+
+MIT, see [LICENSE](LICENSE).

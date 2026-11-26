@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased
+- MIT license; GitHub Actions workflow running the CPU tests on every push to main.
+
 ## 0.3.1
 - Fused training policy depends on the boundary (`fused.prefer_for_training`): for k > 3 the
   fused backward is now used with fixed / zeroflux / periodic boundaries (2.4–16× faster than
