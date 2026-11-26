@@ -7,12 +7,13 @@ template). Padding is differentiable and compiles into fused kernels.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, get_args
 
 import torch
 import torch.nn.functional as F
 
 BoundaryKind = Literal["fixed", "zeroflux", "periodic", "spiral"]
+BOUNDARY_KINDS: tuple[str, ...] = get_args(BoundaryKind)
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,10 @@ class Boundary:
 
     kind: BoundaryKind = "fixed"
     value: float = 0.0
+
+    def __post_init__(self):
+        if self.kind not in BOUNDARY_KINDS:
+            raise ValueError(f"unknown boundary kind {self.kind!r}; choose from {list(BOUNDARY_KINDS)}")
 
     def pad(self, t: torch.Tensor, r: int = 1) -> torch.Tensor:
         if r == 0:

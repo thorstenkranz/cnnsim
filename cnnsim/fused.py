@@ -56,9 +56,11 @@ def _next_pow2(n: int) -> int:
     return 1 << (n - 1).bit_length()
 
 
-def supported(boundary: Boundary, out: Output, k: int, h: int, w: int, device: torch.device | str = "cuda") -> bool:
+def supported(boundary: Boundary, out: Output, k: int, h: int, w: int, device: torch.device | str = "cuda",
+              dtype: torch.dtype = torch.float32) -> bool:
+    """Whether the fused kernels handle this configuration (the kernels compute in float32 only)."""
     return (
-        HAVE_TRITON and torch.device(device).type == "cuda"
+        HAVE_TRITON and torch.device(device).type == "cuda" and dtype == torch.float32
         and boundary.kind in _BOUND and out.kind in _OUT and k % 2 == 1 and k <= 7
         and h * w <= MAX_CELLS and h >= k and w >= k
     )
@@ -75,6 +77,12 @@ def _launch_cfg(h: int, w: int, k: int = 3, kernel: str = "fwd"):
     return BH, BW, warps
 
 
+def _check_float32(**tensors: torch.Tensor) -> None:
+    bad = {n: t.dtype for n, t in tensors.items() if t.dtype != torch.float32}
+    if bad:
+        raise TypeError(f"the fused backend computes in float32 only, got {bad}; use the stencil backend")
+
+
 def _consts(boundary: Boundary, out: Output):
     return _BOUND[boundary.kind], _OUT[out.kind], float(out.beta), float(boundary.value)
 
@@ -82,11 +90,12 @@ def _consts(boundary: Boundary, out: Output):
 def forward(x0: torch.Tensor, bias: torch.Tensor, A: torch.Tensor, boundary: Boundary, out: Output,
             steps: int, dt: float, store_history: bool = False):
     """Integrate `steps` Euler steps. x0, bias (N,1,H,W); A (1|N, k, k). Returns (x_T, history)."""
+    _check_float32(x0=x0, bias=bias, A=A)
     N, _, H, W = x0.shape
     k = A.shape[-1]
-    x0 = x0.contiguous().float()
-    bias = bias.expand(N, 1, H, W).contiguous().float()
-    A = A.contiguous().float()
+    x0 = x0.contiguous()
+    bias = bias.expand(N, 1, H, W).contiguous()
+    A = A.contiguous()
     a_stride = 0 if A.shape[0] == 1 else k * k
     xout = torch.empty_like(x0)
     scratch = torch.empty(N, H * W, device=x0.device, dtype=torch.float32)
@@ -104,8 +113,9 @@ def backward(gT: torch.Tensor, hist: torch.Tensor, A: torch.Tensor, boundary: Bo
     N, _, H, W = gT.shape
     k = A.shape[-1]
     steps = hist.shape[1]
-    gT = gT.contiguous().float()
-    A = A.contiguous().float()
+    _check_float32(gT=gT, hist=hist, A=A)
+    gT = gT.contiguous()
+    A = A.contiguous()
     a_stride = 0 if A.shape[0] == 1 else k * k
     sy = torch.empty(N, H * W, device=gT.device, dtype=torch.float32)
     sg = torch.empty_like(sy)

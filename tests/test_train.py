@@ -7,7 +7,7 @@ from cnnsim import Boundary, CNNSimulator, Output, templates as T
 from cnnsim.losses import aggregate, image_loss, mean_output, msen, pixel_error_rate
 from cnnsim.optim import cmaes, objective, simulated_annealing
 from cnnsim.params import TemplateParams, TemplateSpec, orbit_map
-from cnnsim.train import Dynamics, fit, simulate
+from cnnsim.train import Dynamics, evaluate, fit, simulate
 
 DEV = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -132,3 +132,34 @@ def test_learn_edge_template_from_examples():
     res = fit(p, image_loss("mse"), train, dyn, val=val, epochs=200, lr=0.05)
     err = aggregate(pixel_error_rate(simulate(res.best(), val["u"], dyn), val["target"]))
     assert err.min() < 0.005
+
+
+@pytest.mark.parametrize(
+    "kw",
+    [dict(size_A=4), dict(size_B=0), dict(sym_A="isotrpic"), dict(mask_A=torch.ones(5, 5, dtype=torch.bool))],
+)
+def test_template_spec_rejects_invalid_fields(kw):
+    with pytest.raises(ValueError):
+        TemplateSpec(**kw)
+
+
+def test_template_spec_maps_follow_field_changes():
+    spec = TemplateSpec()
+    assert spec.maps()[0][1] == 9
+    spec.sym_A = "isotropic"
+    assert spec.maps()[0][1] == 3
+
+
+def test_fit_tracks_best_on_val_only_with_eval_every():
+    """With eval_every > 1, train losses must not enter the best-on-val tracking."""
+    g = torch.Generator().manual_seed(0)
+    u = (torch.rand(8, 1, 10, 10, generator=g) * 2 - 1).to(DEV)
+    train = {"u": u, "target": -u.sign()}
+    val = {"u": u, "target": u.sign()}  # opposite task: val loss stays high while train loss drops
+    dyn = Dynamics(boundary=Boundary("fixed", 0.0), output=Output("tanh"), steps=20, dt=0.2, x0="zero")
+    p = TemplateParams(population=3, scale=0.1, generator=g, device=DEV)
+    loss = image_loss("msen")
+    res = fit(p, loss, train, dyn, val=val, epochs=10, eval_every=3, lr=0.1)
+    assert len(res.history["val"]) == 4  # epochs 0, 3, 6, 9
+    torch.testing.assert_close(res.best_loss, torch.stack(res.history["val"]).min(0).values)
+    torch.testing.assert_close(evaluate(res.best, loss, val, dyn).cpu(), res.best_loss, atol=1e-5, rtol=1e-5)

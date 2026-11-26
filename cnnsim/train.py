@@ -24,7 +24,7 @@ from torch.utils.checkpoint import checkpoint
 
 from . import fused
 from .boundary import Boundary
-from .dynamics import Integrator, bias_map, derivative, make_steps
+from .dynamics import Integrator, bias_map, compile_steps, derivative, make_steps
 from .outputs import PWL, Output
 from .params import TemplateParams
 
@@ -56,7 +56,7 @@ def _steps_fn(dyn: Dynamics, n: int):
     key = (dyn.boundary, dyn.output, n, dyn.integrator, dyn.compile)
     if key not in _STEP_CACHE:
         fn = make_steps(dyn.boundary, dyn.output, n, dyn.integrator)
-        _STEP_CACHE[key] = torch.compile(fn, dynamic=False) if dyn.compile else fn
+        _STEP_CACHE[key] = compile_steps(fn) if dyn.compile else fn
     return _STEP_CACHE[key]
 
 
@@ -89,7 +89,7 @@ def simulate(
     AA = rep(A)
 
     use_fused = dyn.backend == "fused" and dyn.integrator == "euler" and fused.supported(
-        dyn.boundary, dyn.output, AA.shape[-1], *xx.shape[-2:], xx.device
+        dyn.boundary, dyn.output, AA.shape[-1], *xx.shape[-2:], xx.device, xx.dtype
     )
     grad = torch.is_grad_enabled() and (A.requires_grad or B.requires_grad or z.requires_grad)
     if use_fused and grad and not fused.prefer_for_training(dyn.boundary, AA.shape[-1]):
@@ -191,7 +191,8 @@ def fit(
     loss_fn(y, batch) -> (P,): one loss per candidate. Their sum is minimised; since the
         candidates do not share parameters, each one follows its own gradient.
     settle_weight: adds settle_weight * mean |dx/dt| at the final state (convergence penalty).
-    The best parameters per candidate are tracked on val (if given) else on the train loss.
+    The best parameters per candidate are tracked on val (if given; on the epochs where it is
+    evaluated, see eval_every) else on the train loss.
     """
     gen = torch.Generator().manual_seed(seed)
     opt = torch.optim.AdamW([p for p in params.parameters() if p.requires_grad], lr=lr, weight_decay=weight_decay)
@@ -230,13 +231,14 @@ def fit(
         tr = (ep_loss / n_seen).cpu()
         hist["train"].append(tr)
 
-        monitor = tr
+        # The best parameters are tracked on one loss only: val if given (on the epochs where it
+        # is evaluated), else train. A train loss is never compared with a best val loss.
+        monitor = tr if val is None else None
         if val is not None and (ep % eval_every == 0 or ep == epochs - 1):
             v = evaluate(params, loss_fn, val, dyn, batch_size).cpu()
             hist["val"].append(v)
             monitor = v
-        improved = monitor < best_loss
-        if improved.any():
+        if monitor is not None and (improved := monitor < best_loss).any():
             best_loss = torch.where(improved, monitor, best_loss)
             with torch.no_grad():
                 cur = params.to_vector()
