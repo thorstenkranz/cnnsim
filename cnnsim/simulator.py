@@ -21,17 +21,11 @@ from dataclasses import dataclass, field
 from typing import Callable, Literal
 
 import torch
-import torch._dynamo
 
 from . import fused
 from .boundary import Boundary
-from .dynamics import Backend, Integrator, as_template_batch, bias_map, correlate, make_steps
+from .dynamics import Backend, Integrator, as_template_batch, bias_map, compile_steps, correlate, make_steps
 from .outputs import PWL, Output
-
-# Each grid shape / boundary / chunk gets its own specialised kernel. The default limit
-# (8) is easily hit when sweeping sizes, after which torch silently falls back to eager.
-torch._dynamo.config.cache_size_limit = max(torch._dynamo.config.cache_size_limit, 256)
-torch._dynamo.config.recompile_limit = max(torch._dynamo.config.recompile_limit, 256)
 
 X0Kind = Literal["zero", "input", "ones", "minus_ones"]
 
@@ -39,18 +33,26 @@ X0Kind = Literal["zero", "input", "ones", "minus_ones"]
 # --------------------------------------------------------------------------- template
 
 
-@dataclass
-class Template:
-    """A CNN template plus the run conventions that belong to it.
+def _freeze_matrix(m) -> tuple[tuple[float, ...], ...]:
+    """Nested sequence or tensor (k,k) -> immutable tuple of tuples of floats."""
+    if isinstance(m, torch.Tensor):
+        m = m.detach().cpu().tolist()
+    return tuple(tuple(float(v) for v in row) for row in m)
 
-    A, B: odd k×k (sizes may differ); z: bias (scalar)
+
+@dataclass(frozen=True)
+class Template:
+    """A CNN template plus the run conventions that belong to it. Immutable: derive variants
+    with `dataclasses.replace(template, z=...)`.
+
+    A, B: odd k×k (sizes may differ; any nested sequence or tensor, stored as tuples); z: bias (scalar)
     x0: initial state, "zero" | "input" | "ones" | "minus_ones"
     boundary: boundary for the feedback term (and for the input unless boundary_u is set)
     output: cell output function
     """
 
-    A: list[list[float]]
-    B: list[list[float]]
+    A: tuple[tuple[float, ...], ...]
+    B: tuple[tuple[float, ...], ...]
     z: float
     name: str = ""
     x0: X0Kind = "zero"
@@ -58,6 +60,11 @@ class Template:
     boundary_u: Boundary | None = None
     output: Output = PWL
     description: str = ""
+
+    def __post_init__(self):
+        object.__setattr__(self, "A", _freeze_matrix(self.A))
+        object.__setattr__(self, "B", _freeze_matrix(self.B))
+        object.__setattr__(self, "z", float(self.z))
 
 
 # --------------------------------------------------------------------------- helpers
@@ -206,7 +213,7 @@ class CNNSimulator:
         if key not in self._compiled:
             fn = make_steps(boundary, out, k, self.integrator, "conv" if self.backend == "conv" else "stencil")
             if self.compile:
-                fn = torch.compile(fn, dynamic=False)
+                fn = compile_steps(fn)
             self._compiled[key] = fn
         return self._compiled[key]
 
@@ -248,9 +255,10 @@ class CNNSimulator:
     ) -> dict:
         """Integrate the network.
 
-        steps: maximum number of integration steps (rounded up to a multiple of chunk)
-        tol: stop early when max |dx/dt| < tol (checked every `check_every` steps)
-        record_every: keep a snapshot of y every this many steps (multiple of chunk)
+        steps: number of integration steps (fewer if `tol` stops the run early)
+        tol: stop early when max |dx/dt| < tol (checked every `check_every` steps, rounded down
+            to a multiple of chunk)
+        record_every: keep a snapshot of y every this many steps (rounded down to a multiple of chunk)
 
         Returns dict with "y" (output), "x" (state), "steps" (steps taken),
         "history" (list of y snapshots, if requested).
@@ -260,26 +268,49 @@ class CNNSimulator:
 
     @torch.no_grad()
     def integrate(self, p: Prepared, *, steps=200, dt=0.1, tol=None, check_every=100, record_every=None) -> dict:
+        """Integrate a prepared network for exactly `steps` steps (fewer if `tol` stops it early).
+
+        Full chunks of `chunk` steps run on the fast path (compiled / CUDA graph / fused); the
+        remaining steps % chunk steps run once at the end, uncompiled. Convergence checks and
+        history snapshots happen at chunk boundaries.
+        """
+        if steps < 0:
+            raise ValueError(f"steps must be >= 0, got {steps}")
         k = self.chunk
-        n_chunks = -(-steps // k)
+        n_full, rest = divmod(steps, k)
         check_chunks = max(1, check_every // k)
         record_chunks = max(1, record_every // k) if record_every else None
         history = [p.output(p.x).clone()] if record_chunks else []
 
-        advance = self.stepper(p, dt)
-        taken = 0
-        for c in range(1, n_chunks + 1):
-            prev = advance.state().clone() if tol is not None and c % check_chunks == 0 else None
-            cur = advance()
-            taken += k
-            if record_chunks and c % record_chunks == 0:
-                history.append(p.output(cur).clone())
-            if prev is not None:
-                rate = (cur - prev).abs().max().item() / (k * dt)
-                if rate < tol:
-                    break
-        x = advance.state().clone()
+        x, taken, converged = p.x, 0, False
+        if n_full:
+            advance = self.stepper(p, dt)
+            for c in range(1, n_full + 1):
+                prev = advance.state().clone() if tol is not None and c % check_chunks == 0 else None
+                cur = advance()
+                taken += k
+                if record_chunks and c % record_chunks == 0:
+                    history.append(p.output(cur).clone())
+                if prev is not None:
+                    rate = (cur - prev).abs().max().item() / (k * dt)
+                    if rate < tol:
+                        converged = True
+                        break
+            x = advance.state()
+        if rest and not converged:
+            x = self._run_steps(x, p, dt, rest)
+            taken += rest
+        x = x.clone()
         return {"y": p.output(x), "x": x, "steps": taken, "history": history}
+
+    def _run_steps(self, x: torch.Tensor, p: Prepared, dt: float, n: int) -> torch.Tensor:
+        """n steps from state x in one uncompiled call (the remainder of a run)."""
+        if self.backend == "fused" and self.integrator == "euler" and fused.supported(
+            p.boundary, p.output, p.A.shape[-1], *x.shape[-2:], x.device, x.dtype
+        ):
+            return fused.forward(x, p.bias, p.A, p.boundary, p.output, n, dt)[0]
+        backend = "conv" if self.backend == "conv" else "stencil"
+        return make_steps(p.boundary, p.output, n, self.integrator, backend)(x, p.bias, p.A, dt)
 
     def stepper(self, p: Prepared, dt: float) -> Callable[[], torch.Tensor]:
         """Return advance() which performs `chunk` steps and returns the new state.
@@ -288,7 +319,7 @@ class CNNSimulator:
         compilation / graph capture once, so repeated advance() calls are cheap.
         """
         if self.backend == "fused" and self.integrator == "euler" and fused.supported(
-            p.boundary, p.output, p.A.shape[-1], *p.x.shape[-2:], p.x.device
+            p.boundary, p.output, p.A.shape[-1], *p.x.shape[-2:], p.x.device, p.x.dtype
         ):
             cur = [p.x]
             k, bias, A = self.chunk, p.bias, p.A

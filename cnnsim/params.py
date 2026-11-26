@@ -12,7 +12,7 @@ CMA-ES populations, parameter sweeps); the simulator handles per-sample template
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import torch
 from torch import nn
@@ -75,13 +75,20 @@ class TemplateSpec:
     learn_A: bool = True
     learn_B: bool = True
     learn_z: bool = True
-    _maps: dict = field(default_factory=dict, repr=False)
+
+    def __post_init__(self):
+        for part in ("A", "B"):
+            k, sym, mask = getattr(self, f"size_{part}"), getattr(self, f"sym_{part}"), getattr(self, f"mask_{part}")
+            if not (isinstance(k, int) and k >= 1 and k % 2 == 1):
+                raise ValueError(f"size_{part} must be a positive odd integer, got {k!r}")
+            if sym not in SYMMETRIES:
+                raise ValueError(f"unknown sym_{part} {sym!r}; choose from {list(SYMMETRIES)}")
+            if mask is not None and tuple(torch.as_tensor(mask).shape) != (k, k):
+                raise ValueError(f"mask_{part} must have shape ({k}, {k}), got {tuple(torch.as_tensor(mask).shape)}")
 
     def maps(self):
-        if not self._maps:
-            self._maps["A"] = orbit_map(self.size_A, self.sym_A, self.mask_A)
-            self._maps["B"] = orbit_map(self.size_B, self.sym_B, self.mask_B)
-        return self._maps["A"], self._maps["B"]
+        """((index_A, n_A), (index_B, n_B)): orbit maps of A and B, computed from the current fields."""
+        return orbit_map(self.size_A, self.sym_A, self.mask_A), orbit_map(self.size_B, self.sym_B, self.mask_B)
 
 
 def _project(t: torch.Tensor, index: torch.Tensor, n: int) -> torch.Tensor:

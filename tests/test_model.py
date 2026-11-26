@@ -130,3 +130,48 @@ def test_k5_template_runs_in_all_modes():
     for mode in (dict(backend="conv"), dict(compile=True, cuda_graph=True)):
         x = CNNSimulator(device=DEV, **mode).run(None, u, steps=100, dt=0.2, **kw)["x"]
         torch.testing.assert_close(x, ref, atol=1e-4, rtol=1e-4)
+
+
+def test_invalid_kinds_are_rejected_at_construction():
+    with pytest.raises(ValueError, match="boundary kind"):
+        Boundary("fxed")
+    with pytest.raises(ValueError, match="output kind"):
+        Output("relu")
+
+
+def test_templates_are_immutable_and_do_not_share_state():
+    import dataclasses
+
+    from cnnsim import templates as T
+
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        T.THRESHOLD.z = 1.0
+    with pytest.raises(TypeError):
+        T.THRESHOLD.B[0][0] = 99.0  # tuples
+    t = dataclasses.replace(T.THRESHOLD, B=[[0, 0, 0], [0, 99, 0], [0, 0, 0]])
+    assert t.B[1][1] == 99.0 and T.THRESHOLD.B[1][1] == 0.0 and T.AVERAGE.B[1][1] == 0.0
+    assert Template(A=torch.eye(3), B=[[1.0]], z=0).A[0] == (1.0, 0.0, 0.0)  # tensors are converted
+
+
+@pytest.mark.parametrize("mode", [dict(), dict(backend="conv"), dict(compile=True, cuda_graph=True)])
+@pytest.mark.parametrize("steps", [0, 7, 20, 47])
+def test_run_takes_exactly_the_requested_steps(mode, steps):
+    g = torch.Generator().manual_seed(0)
+    u = (torch.rand(2, 12, 13, generator=g) * 2 - 1).to(DEV)
+    kw = dict(A=torch.randn(3, 3, generator=g) * 0.4, B=torch.randn(3, 3, generator=g) * 0.4, z=0.1,
+              x0="input", boundary=Boundary("zeroflux"), output=Output("tanh"))
+    sim = CNNSimulator(device=DEV, chunk=20, **mode)
+    r = sim.run(None, u, steps=steps, dt=0.2, **kw)
+    assert r["steps"] == steps
+    p = sim.prepare(None, u, **kw)
+    ref = make_steps(p.boundary, p.output, steps)(p.x, p.bias, p.A, 0.2)
+    torch.testing.assert_close(r["x"], ref, atol=1e-5, rtol=1e-5)
+
+
+def test_import_leaves_torch_dynamo_config_alone():
+    import subprocess
+    import sys
+
+    code = ("import torch._dynamo as d; before = d.config.cache_size_limit; import cnnsim; "
+            "assert d.config.cache_size_limit == before, (before, d.config.cache_size_limit)")
+    subprocess.run([sys.executable, "-c", code], check=True)

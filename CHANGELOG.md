@@ -1,6 +1,24 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
+Bug fixes; the changes marked (breaking) can affect existing code.
+- `fit` with `val` and `eval_every > 1`: the best parameters were tracked on a mix of train and
+  val losses (on epochs without validation, the train loss was compared with the best val loss).
+  They are now tracked on the val loss only. Results of such runs may change.
+- `backend="fused"` with a dtype other than float32 silently computed and returned float32; it now
+  falls back to the stencil path (`fused.supported` takes a `dtype`), and direct calls to
+  `fused.forward` / `fused.integrate` with non-float32 tensors raise `TypeError`.
+- `CNNSimulator.run` / `integrate` take exactly `steps` steps; before, `steps` was rounded up to a
+  multiple of `chunk` (the remainder now runs once at the end, uncompiled).
+- (breaking) `Template` is frozen and stores A and B as tuples (tensors are accepted and
+  converted), so templates can no longer be modified in place or share state (the bundled
+  THRESHOLD, CCD_HORIZONTAL and AVERAGE shared one list for B). Use `dataclasses.replace`.
+- `Boundary`, `Output` and `TemplateSpec` validate their fields on construction (unknown kinds,
+  symmetries, even or non-positive sizes, wrong mask shapes) instead of failing later in a run.
+  `TemplateSpec.maps()` no longer caches, so it follows changes to the fields.
+- (breaking) Importing cnnsim no longer changes torch's process-wide `torch._dynamo` recompile limits;
+  they are raised to 256 only when compilation is used (`compile=True`, via
+  `cnnsim.dynamics.compile_steps`).
 - MIT license; GitHub Actions workflow running the CPU tests on every push to main.
 
 ## 0.3.1

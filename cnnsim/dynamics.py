@@ -95,3 +95,21 @@ def make_steps(
         return x
 
     return steps
+
+
+def compile_steps(fn: Callable) -> Callable:
+    """torch.compile a step function (static shapes).
+
+    Every grid shape / boundary / output / step count gets its own specialised kernel, and all of
+    them share the code object of `make_steps`' inner function. torch's default recompile limit
+    (8) is easily hit when sweeping sizes, after which it silently falls back to eager mode, so
+    this raises the limit to at least 256. This changes a process-wide torch setting; it is done
+    only when compilation is requested (`compile=True`), not on import.
+    """
+    import torch._dynamo
+
+    cfg = torch._dynamo.config
+    for name in ("cache_size_limit", "recompile_limit"):
+        if hasattr(cfg, name):
+            setattr(cfg, name, max(getattr(cfg, name), 256))
+    return torch.compile(fn, dynamic=False)

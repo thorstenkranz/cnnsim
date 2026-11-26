@@ -103,3 +103,29 @@ def test_train_simulate_fused_k5(bkind):
         mean_output(simulate(p(), u, dyn)).pow(2).sum().backward()
         grads.append(torch.cat([q.grad.flatten() for q in p.parameters()]))
     torch.testing.assert_close(grads[1], grads[0], atol=1e-4, rtol=1e-3)
+
+
+def test_float64_falls_back_to_stencil_and_keeps_dtype():
+    assert not fused.supported(Boundary("spiral"), Output("pwl"), 3, 16, 16, "cuda", torch.float64)
+    u = torch.rand(2, 16, 16, dtype=torch.float64) * 2 - 1
+    kw = dict(A=torch.randn(3, 3) * 0.3, z=0.1, x0="input", boundary=Boundary("zeroflux"), steps=30, dt=0.2)
+    x = CNNSimulator(device=DEV, dtype=torch.float64, backend="fused").run(None, u, **kw)["x"]
+    ref = CNNSimulator(device=DEV, dtype=torch.float64).run(None, u, **kw)["x"]
+    assert x.dtype == torch.float64
+    torch.testing.assert_close(x, ref)
+
+
+def test_direct_fused_call_rejects_non_float32():
+    x = torch.zeros(1, 1, 8, 8, device=DEV, dtype=torch.float64)
+    with pytest.raises(TypeError, match="float32"):
+        fused.integrate(x, x, torch.zeros(1, 3, 3, device=DEV, dtype=torch.float64), Boundary(), Output(), 5, 0.1)
+
+
+@pytest.mark.parametrize("steps", [7, 47])
+def test_fused_simulator_takes_exactly_the_requested_steps(steps):
+    u = torch.rand(2, 16, 16, device=DEV) * 2 - 1
+    kw = dict(A=torch.randn(3, 3) * 0.3, z=0.1, x0="input", boundary=Boundary("spiral"), output=Output("tanh"))
+    r = CNNSimulator(device=DEV, backend="fused").run(None, u, steps=steps, dt=0.2, **kw)
+    ref = CNNSimulator(device=DEV, chunk=1).run(None, u, steps=steps, dt=0.2, **kw)
+    assert r["steps"] == steps
+    torch.testing.assert_close(r["x"], ref["x"], atol=1e-5, rtol=1e-5)

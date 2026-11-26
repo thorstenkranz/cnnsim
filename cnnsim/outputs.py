@@ -7,11 +7,12 @@ derivative of clip(beta * x, -1, 1)) so that networks using it can still be trai
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, get_args
 
 import torch
 
 OutputKind = Literal["pwl", "sigmoid", "tanh", "sign", "identity"]
+OUTPUT_KINDS: tuple[str, ...] = get_args(OutputKind)
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,10 @@ class Output:
 
     kind: OutputKind = "pwl"
     beta: float = 1.0
+
+    def __post_init__(self):
+        if self.kind not in OUTPUT_KINDS:
+            raise ValueError(f"unknown output kind {self.kind!r}; choose from {list(OUTPUT_KINDS)}")
 
     def __call__(self, x: torch.Tensor) -> torch.Tensor:
         k = self.kind
