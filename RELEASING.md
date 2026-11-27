@@ -28,6 +28,7 @@ and tag on that branch.
      break the API, a patch bump only fixes bugs);
    - in `CHANGELOG.md`, move the entries from `[Unreleased]` into `## [X.Y.Z] - YYYY-MM-DD`
      and update the compare links at the bottom;
+   - `version` and `date-released` in `CITATION.cff`;
    - `uv lock` (updates the version in `uv.lock`).
 2. Run the GPU tests locally (`uv run python -m pytest -q`); CI only covers the CPU paths. For
    changes to the kernels or the simulator, also check `uv run python benchmark.py`.

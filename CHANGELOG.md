@@ -7,7 +7,7 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.4.0] - unreleased
+## [0.4.0] - 2026-11-27
 
 First release on PyPI.
 
@@ -37,6 +37,7 @@ First release on PyPI.
 
 ### Added
 - Package metadata for PyPI (classifiers, URLs, keywords), `py.typed` marker.
+- `CITATION.cff` (citation metadata for GitHub and the Zenodo archive of each release).
 - MIT license; GitHub Actions CI on pushes and pull requests (CPU tests on Python 3.11–3.14,
   oldest supported PyTorch, package build check); release workflow publishing to PyPI on
   version tags.

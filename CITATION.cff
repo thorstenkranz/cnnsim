@@ -1,0 +1,40 @@
+cff-version: 1.2.0
+message: "If you use cnnsim in your research, please cite it as below."
+type: software
+title: "cnnsim: Chua–Yang cellular neural networks in PyTorch"
+abstract: >-
+  cnnsim simulates and trains Chua–Yang cellular neural networks in PyTorch: fast batched
+  simulation on the GPU (torch.compile, CUDA graphs, fused Triton kernels) or CPU, a generalised
+  model (odd k×k templates, output functions, fixed / zero-flux / periodic / closed-spiral
+  boundaries, bias maps), template learning by backpropagation through the dynamics, and
+  gradient-free baselines (simulated annealing, CMA-ES).
+authors:
+  - family-names: Kranz
+    given-names: Thorsten
+version: 0.4.0
+date-released: "2026-11-27"
+license: MIT
+repository-code: "https://github.com/thorstenkranz/cnnsim"
+keywords:
+  - cellular neural networks
+  - Chua-Yang
+  - dynamical systems
+  - PyTorch
+  - Triton
+  - GPU
+  - template learning
+references:
+  - type: article
+    title: "Cellular neural networks: theory"
+    authors:
+      - family-names: Chua
+        given-names: Leon O.
+      - family-names: Yang
+        given-names: Lin
+    journal: "IEEE Transactions on Circuits and Systems"
+    volume: 35
+    issue: 10
+    start: 1257
+    end: 1272
+    year: 1988
+    doi: "10.1109/31.7600"
