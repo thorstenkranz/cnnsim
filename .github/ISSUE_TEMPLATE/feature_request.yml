@@ -1,0 +1,24 @@
+name: Feature request
+description: Suggest an idea or a change
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like to do?
+      description: The use case or problem, independent of a particular solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: How it could work, e.g. a sketch of the API. References to papers welcome.
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: Would you like to implement it?
+      options:
+        - "Yes"
+        - "Maybe, with some guidance"
+        - "No"
