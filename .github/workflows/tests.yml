@@ -5,21 +5,74 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:  # used by the release workflow
+
+concurrency:
+  group: tests-${{ github.workflow_ref }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  test:
+  test-matrix:
     # GitHub-hosted runners have no GPU: the CPU paths are tested, the CUDA/Triton tests skip.
+    name: test (py${{ matrix.python }}, torch ${{ matrix.torch }})
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { python: "3.11", torch: "2.8.*" }  # oldest supported combination (needs setuptools)
+          - { python: "3.12", torch: "latest" }
+          - { python: "3.13", torch: "latest" }
+          - { python: "3.14", torch: "latest" }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install (CPU-only PyTorch instead of the CUDA wheels of uv.lock)
+        run: |
+          uv venv
+          if [ "${{ matrix.torch }}" = "latest" ]; then spec=torch; else spec="torch==${{ matrix.torch }}"; fi
+          uv pip install "$spec" --index-url https://download.pytorch.org/whl/cpu
+          uv pip install -e . pytest numpy matplotlib pillow
+          # torch < 2.11 imports setuptools when compiling for the CPU without declaring it
+          if [ "${{ matrix.torch }}" != "latest" ]; then uv pip install setuptools; fi
+          uv run --no-sync python -c "import sys, torch; print(sys.version); print('torch', torch.__version__)"
+      - name: Tests
+        run: uv run --no-sync python -m pytest -q
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
-      - name: Install (CPU-only PyTorch instead of the CUDA wheels of uv.lock)
+      - name: Build sdist and wheel
+        run: uv build
+      - name: Check metadata (the README must render on PyPI)
+        run: uvx twine check --strict dist/*
+      - name: Install the wheel in a clean environment and import it
         run: |
-          uv venv
-          uv pip install torch --index-url https://download.pytorch.org/whl/cpu
-          uv pip install -e . pytest matplotlib pillow
-      - name: Tests
-        run: uv run --no-sync python -m pytest -q
+          uv venv /tmp/wheeltest
+          VIRTUAL_ENV=/tmp/wheeltest uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+          VIRTUAL_ENV=/tmp/wheeltest uv pip install dist/*.whl
+          cd /tmp && /tmp/wheeltest/bin/python -c "import cnnsim, importlib.resources as r; print(cnnsim.__version__); assert r.files('cnnsim').joinpath('py.typed').is_file()"
+      - uses: actions/upload-artifact@v5
+        with:
+          name: dist
+          path: dist/
+
+  # The required status check of the main-branch ruleset ("test"): one stable name that passes
+  # only if every matrix job and the build passed, so the matrix can change without touching
+  # the ruleset.
+  test:
+    if: always()
+    needs: [test-matrix, build]
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "test-matrix: ${{ needs.test-matrix.result }}, build: ${{ needs.build.result }}"
+          [ "${{ needs.test-matrix.result }}" = "success" ] && [ "${{ needs.build.result }}" = "success" ]
