@@ -1,0 +1,30 @@
+name: Bug report
+description: Something doesn't work as documented
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Minimal example
+      description: The shortest code that shows the problem, with the full error message.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions
+      description: |
+        Output of
+        `python -c "import cnnsim, torch, sys; print(cnnsim.__version__, torch.__version__, torch.version.cuda, sys.version)"`
+        and your GPU model, if any.
+      render: text
+    validations:
+      required: true

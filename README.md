@@ -180,6 +180,8 @@ Note: `torch.compile` specialises on shape; the first run of a new size compiles
 
 ## Development
 
+Contributions are welcome: see [CONTRIBUTING.md](https://github.com/thorstenkranz/cnnsim/blob/main/CONTRIBUTING.md).
+
 ```bash
 git clone https://github.com/thorstenkranz/cnnsim && cd cnnsim
 uv sync                      # dev environment; torch from the CUDA 13 index (RTX 50xx needs CUDA >= 12.8)
