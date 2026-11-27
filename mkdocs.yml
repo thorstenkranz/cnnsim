@@ -1,0 +1,88 @@
+site_name: cnnsim
+site_description: Chua–Yang cellular neural networks in PyTorch — GPU simulation and training
+site_url: https://thorstenkranz.github.io/cnnsim/
+repo_url: https://github.com/thorstenkranz/cnnsim
+repo_name: thorstenkranz/cnnsim
+edit_uri: edit/main/docs/
+copyright: Copyright &copy; Thorsten Kranz — MIT License
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - search.highlight
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue grey
+      accent: indigo
+      toggle: { icon: material/brightness-7, name: Dark mode }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue grey
+      accent: indigo
+      toggle: { icon: material/brightness-4, name: Light mode }
+
+nav:
+  - Home: index.md
+  - User guide:
+      - Simulation: guide/simulation.md
+      - Training templates: guide/training.md
+      - Performance: guide/performance.md
+  - API reference:
+      - cnnsim: api/cnnsim.md
+      - Simulator: api/simulator.md
+      - Model (boundary, output, dynamics): api/model.md
+      - Templates: api/templates.md
+      - Training: api/train.md
+      - Losses: api/losses.md
+      - Gradient-free optimisers: api/optim.md
+      - Fused backend: api/fused.md
+  - Changelog: changelog.md
+  - Contributing: https://github.com/thorstenkranz/cnnsim/blob/main/CONTRIBUTING.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc: { permalink: true }
+  - pymdownx.arithmatex: { generic: true }
+  - pymdownx.highlight: { anchor_linenums: true }
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.snippets: { check_paths: true }
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [.]
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            members_order: source
+            filters: ["!^_"]
+            show_signature_annotations: true
+            separate_signature: true
+            signature_crossrefs: true
+            merge_init_into_class: true
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+          inventories:
+            - https://docs.python.org/3/objects.inv
+            - https://docs.pytorch.org/docs/stable/objects.inv
+
+validation:
+  omitted_files: warn
+  absolute_links: info
+  unrecognized_links: warn

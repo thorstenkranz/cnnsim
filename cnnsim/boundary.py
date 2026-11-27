@@ -20,14 +20,22 @@ BOUNDARY_KINDS: tuple[str, ...] = get_args(BoundaryKind)
 class Boundary:
     """Boundary condition for the virtual cells.
 
-    kind:
-      "fixed"    Dirichlet: virtual cells have the constant `value` (0 = "neutral").
-      "zeroflux" Neumann: virtual cells copy the nearest edge cell.
-      "periodic" torus: rows and columns wrap around independently.
-      "spiral"   closed spiral: the grid is one sequence in row-major order, closed into a
-                 ring. The neighbour at offset (di, dj) of the cell with flat index p is the
-                 cell p + di*W + dj (mod H*W): the right neighbour of the last cell in a row is
-                 the first cell of the next row. Natural for a time series written row-wise.
+    Kinds:
+
+    - `"fixed"`: Dirichlet; the virtual cells have the constant `value` (0 = "neutral").
+    - `"zeroflux"`: Neumann; the virtual cells copy the nearest edge cell.
+    - `"periodic"`: torus; rows and columns wrap around independently.
+    - `"spiral"`: closed spiral; the grid is one sequence in row-major order, closed into a
+      ring. The neighbour at offset `(di, dj)` of the cell with flat index `p` is the cell
+      `p + di·W + dj (mod H·W)`: the right neighbour of the last cell in a row is the first
+      cell of the next row. Natural for a time series written row by row.
+
+    Attributes:
+        kind: One of `"fixed"`, `"zeroflux"`, `"periodic"`, `"spiral"`.
+        value: Value of the virtual cells for `"fixed"`; ignored otherwise.
+
+    Raises:
+        ValueError: For an unknown `kind`.
     """
 
     kind: BoundaryKind = "fixed"
@@ -38,6 +46,7 @@ class Boundary:
             raise ValueError(f"unknown boundary kind {self.kind!r}; choose from {list(BOUNDARY_KINDS)}")
 
     def pad(self, t: torch.Tensor, r: int = 1) -> torch.Tensor:
+        """Pad `t` of shape `(N, C, H, W)` by a halo of `r` virtual cells on every side."""
         if r == 0:
             return t
         if self.kind == "fixed":

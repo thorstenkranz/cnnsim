@@ -10,6 +10,8 @@ All notable changes to this project are documented here. The format follows
 ### Added
 - Zenodo DOI (10.5281/zenodo.24574054, all versions) in `CITATION.cff`; PyPI, Python-version
   and DOI badges in the README.
+- Documentation site with a user guide and an API reference generated from the docstrings:
+  https://thorstenkranz.github.io/cnnsim/. The public docstrings now follow the Google style.
 
 ## [0.4.0] - 2026-11-27
 

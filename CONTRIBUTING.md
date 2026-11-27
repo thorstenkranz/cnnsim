@@ -45,7 +45,11 @@ uv run ruff check --fix .
 uv run ruff format .
 ```
 
-Optionally, run both on every commit with [pre-commit](https://pre-commit.com/):
+Documentation lives in `docs/` (user guide) and in the docstrings (API reference, Google
+style); preview it with `uv run --group docs mkdocs serve`. CI builds it with `--strict`, so
+broken links and docstring problems fail the build.
+
+Optionally, run both ruff commands on every commit with [pre-commit](https://pre-commit.com/):
 `uvx pre-commit install`.
 
 ## Pull requests
@@ -57,8 +61,9 @@ Optionally, run both on every commit with [pre-commit](https://pre-commit.com/):
    - keep the fast inference path working (`compile=True`, `cuda_graph=True`, the fused
      backend); if you touch the simulator or the kernels and have a GPU, compare
      `uv run python benchmark.py` before and after.
-3. If the public API or behaviour changes, update `README.md` and add an entry under
-   `[Unreleased]` in [CHANGELOG.md](CHANGELOG.md) (Added / Changed / Fixed / Removed).
+3. If the public API or behaviour changes, update the docstrings, `README.md` and `docs/`,
+   and add an entry under `[Unreleased]` in [CHANGELOG.md](CHANGELOG.md) (Added / Changed /
+   Fixed / Removed).
 4. Open a pull request against `main`. CI runs ruff and the tests on CPU for Python 3.11–3.14
    (oldest and newest supported PyTorch) and checks the package build; it must pass before
    merging.

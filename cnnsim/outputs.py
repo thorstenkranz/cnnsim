@@ -17,14 +17,23 @@ OUTPUT_KINDS: tuple[str, ...] = get_args(OutputKind)
 
 @dataclass(frozen=True)
 class Output:
-    """Cell output function.
+    """Cell output function y = f(x); calling it applies f elementwise.
 
-    kind:
-      "pwl"      0.5 (|x+1| - |x-1|) = clip(x, -1, 1)      (Chua–Yang standard)
-      "sigmoid"  2 / (1 + exp(-beta x)) - 1 = tanh(beta x / 2)   (SCNN definition)
-      "tanh"     tanh(beta x)
-      "sign"     +1 for x > 0, -1 otherwise; surrogate gradient of clip(beta x, -1, 1)
-      "identity" x
+    Kinds:
+
+    - `"pwl"`: `0.5 (|x+1| - |x-1|) = clip(x, -1, 1)` (the Chua–Yang standard).
+    - `"sigmoid"`: `2 / (1 + exp(-beta x)) - 1 = tanh(beta x / 2)` (the SCNN definition).
+    - `"tanh"`: `tanh(beta x)`.
+    - `"sign"`: +1 for x > 0, −1 otherwise; the gradient is that of `clip(beta x, -1, 1)`
+      (a surrogate, so that networks using it can be trained).
+    - `"identity"`: `x`.
+
+    Attributes:
+        kind: One of the kinds above.
+        beta: Slope parameter of `"sigmoid"`, `"tanh"` and the surrogate gradient of `"sign"`.
+
+    Raises:
+        ValueError: For an unknown `kind`.
     """
 
     kind: OutputKind = "pwl"

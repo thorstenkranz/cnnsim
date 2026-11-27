@@ -1,6 +1,7 @@
 # cnnsim: Chua–Yang cellular neural networks in PyTorch
 
 [![tests](https://github.com/thorstenkranz/cnnsim/actions/workflows/tests.yml/badge.svg)](https://github.com/thorstenkranz/cnnsim/actions/workflows/tests.yml)
+[![docs](https://github.com/thorstenkranz/cnnsim/actions/workflows/docs.yml/badge.svg)](https://thorstenkranz.github.io/cnnsim/)
 [![PyPI](https://img.shields.io/pypi/v/cnnsim.svg)](https://pypi.org/project/cnnsim/)
 [![Python versions](https://img.shields.io/pypi/pyversions/cnnsim.svg)](https://pypi.org/project/cnnsim/)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24574054.svg)](https://doi.org/10.5281/zenodo.24574054)
@@ -32,6 +33,8 @@ What `cnnsim` offers:
   checkpointing, many candidates trained in parallel), plus gradient-free baselines
   (simulated annealing, CMA-ES).
 * **Classic templates** from the literature, checked by tests.
+
+**Documentation:** <https://thorstenkranz.github.io/cnnsim/> (user guide and API reference).
 
 ![The bundled templates applied to a test image](https://raw.githubusercontent.com/thorstenkranz/cnnsim/main/docs/images/templates.png)
 
@@ -187,6 +190,7 @@ git clone https://github.com/thorstenkranz/cnnsim && cd cnnsim
 uv sync                      # dev environment; torch from the CUDA 13 index (RTX 50xx needs CUDA >= 12.8)
 uv run python -m pytest -q   # CUDA/Triton tests are skipped without a GPU
 uv run ruff check . && uv run ruff format --check .
+uv run --group docs mkdocs serve  # documentation at http://127.0.0.1:8000
 uv run python demo.py        # -> output/templates.png
 uv run python benchmark.py
 ```

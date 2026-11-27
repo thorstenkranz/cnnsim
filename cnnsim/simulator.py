@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 import torch
 
@@ -43,13 +43,21 @@ def _freeze_matrix(m) -> tuple[tuple[float, ...], ...]:
 
 @dataclass(frozen=True)
 class Template:
-    """A CNN template plus the run conventions that belong to it. Immutable: derive variants
-    with `dataclasses.replace(template, z=...)`.
+    """A CNN template plus the run conventions that belong to it.
 
-    A, B: odd k×k (sizes may differ; any nested sequence or tensor, stored as tuples); z: bias (scalar)
-    x0: initial state, "zero" | "input" | "ones" | "minus_ones"
-    boundary: boundary for the feedback term (and for the input unless boundary_u is set)
-    output: cell output function
+    Templates are immutable and hashable: derive variants with
+    `dataclasses.replace(template, z=...)`.
+
+    Attributes:
+        A: Feedback template, odd k×k; any nested sequence or tensor, stored as tuples.
+        B: Control template, odd k×k (its size may differ from A's).
+        z: Bias (a scalar).
+        name: Short name.
+        x0: Initial state: `"zero"`, `"input"`, `"ones"` or `"minus_ones"`.
+        boundary: Boundary for the feedback term, and for the input unless `boundary_u` is set.
+        boundary_u: Boundary for the input term `B ⊛ u`, if it differs.
+        output: Cell output function.
+        description: What the template does.
     """
 
     A: tuple[tuple[float, ...], ...]
@@ -252,17 +260,26 @@ class CNNSimulator:
         tol: float | None = None,
         check_every: int = 100,
         record_every: int | None = None,
-        **prepare_kw,
+        **prepare_kw: Any,
     ) -> dict:
-        """Integrate the network.
+        """Prepare and integrate the network.
 
-        steps: number of integration steps (fewer if `tol` stops the run early)
-        tol: stop early when max |dx/dt| < tol (checked every `check_every` steps, rounded down
-            to a multiple of chunk)
-        record_every: keep a snapshot of y every this many steps (rounded down to a multiple of chunk)
+        Args:
+            template: The template; None to give everything as keyword arguments.
+            u: Input of shape `(H, W)`, `(N, H, W)` or `(N, 1, H, W)`, values in [-1, 1].
+            steps: Number of integration steps (fewer if `tol` stops the run early).
+            dt: Time step.
+            tol: Stop early when `max |dx/dt| < tol`, checked every `check_every` steps
+                (rounded down to a multiple of `chunk`).
+            check_every: Steps between convergence checks.
+            record_every: Keep a snapshot of the output every this many steps (rounded down to
+                a multiple of `chunk`).
+            **prepare_kw: Override the template's fields (`A`, `B`, `z`, `x0`, `boundary`,
+                `boundary_u`, `output`), or give `shape` instead of `u`; see `prepare`.
 
-        Returns dict with "y" (output), "x" (state), "steps" (steps taken),
-        "history" (list of y snapshots, if requested).
+        Returns:
+            A dict with `"y"` (output, `(N, 1, H, W)`), `"x"` (state), `"steps"` (steps taken)
+            and `"history"` (list of output snapshots; empty unless `record_every` is set).
         """
         p = self.prepare(template, u, **prepare_kw)
         return self.integrate(p, steps=steps, dt=dt, tol=tol, check_every=check_every, record_every=record_every)
