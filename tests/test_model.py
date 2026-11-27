@@ -175,3 +175,92 @@ def test_import_leaves_torch_dynamo_config_alone():
     code = ("import torch._dynamo as d; before = d.config.cache_size_limit; import cnnsim; "
             "assert d.config.cache_size_limit == before, (before, d.config.cache_size_limit)")
     subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def test_pad_with_zero_radius_is_identity():
+    t = torch.randn(1, 1, 3, 4)
+    for kind in KINDS:
+        assert Boundary(kind).pad(t, 0) is t
+
+
+@pytest.mark.parametrize("shape", [(2, 2), (3, 4), (1, 3, 4), (2, 3, 5, 5)])
+def test_even_or_non_square_templates_are_rejected(shape):
+    with pytest.raises(ValueError, match="odd"):
+        CNNSimulator(device="cpu").prepare(None, torch.zeros(1, 4, 4), A=torch.zeros(shape))
+
+
+def test_negative_steps_are_rejected():
+    with pytest.raises(ValueError, match="steps"):
+        CNNSimulator(device="cpu").run(None, torch.zeros(1, 4, 4), A=torch.zeros(3, 3), steps=-1)
+
+
+def test_prepare_needs_input_or_shape():
+    sim = CNNSimulator(device="cpu")
+    with pytest.raises(ValueError, match="shape"):
+        sim.prepare(None, None, A=torch.zeros(3, 3))
+    p = sim.prepare(None, None, A=torch.zeros(3, 3), shape=(2, 4, 5))
+    assert p.x.shape == (2, 1, 4, 5)
+
+
+@pytest.mark.parametrize("x0,value", [("zero", 0.0), ("ones", 1.0), ("minus_ones", -1.0), ("input", 0.5)])
+def test_initial_state_kinds(x0, value):
+    p = CNNSimulator(device="cpu").prepare(None, torch.full((1, 3, 3), 0.5), A=torch.zeros(3, 3), x0=x0)
+    assert p.x.unique().tolist() == [value]
+
+
+def test_initial_state_tensor_and_input_is_not_aliased():
+    u = torch.full((1, 3, 3), 0.5)
+    x0 = torch.arange(9.0).reshape(3, 3)
+    p = CNNSimulator(device="cpu").prepare(None, u, A=torch.zeros(3, 3), x0=x0)
+    torch.testing.assert_close(p.x[0, 0], x0)
+    # x0="input" must copy u: integrating must not change the caller's input
+    CNNSimulator(device="cpu").run(None, u, A=torch.eye(3), z=1.0, x0="input", steps=10)
+    assert u.unique().item() == 0.5
+
+
+def test_batched_templates_broadcast_against_one_input():
+    u = torch.rand(1, 6, 6) * 2 - 1
+    A = torch.stack([torch.zeros(3, 3), 2 * torch.eye(3)])
+    r = CNNSimulator(device="cpu").run(None, u, A=A, z=torch.tensor([0.5, -0.5]), steps=40)
+    assert r["y"].shape == (2, 1, 6, 6)
+    for i in range(2):
+        ri = CNNSimulator(device="cpu").run(None, u, A=A[i], z=float([0.5, -0.5][i]), steps=40)
+        torch.testing.assert_close(r["y"][i], ri["y"][0])
+
+
+def test_tol_stops_early_at_a_chunk_boundary_after_convergence():
+    sim = CNNSimulator(device="cpu", chunk=10)
+    # dx/dt = -x + 2: converges to x = 2 (|y| = 1) exponentially
+    r = sim.run(None, torch.zeros(1, 4, 4), A=torch.zeros(3, 3), z=2.0, steps=10_000, dt=0.2, tol=1e-4, check_every=50)
+    assert r["steps"] < 10_000 and r["steps"] % 50 == 0
+    torch.testing.assert_close(r["x"], torch.full_like(r["x"], 2.0), atol=1e-3, rtol=0)
+    # without tol the full number of steps is taken
+    assert sim.run(None, torch.zeros(1, 4, 4), A=torch.zeros(3, 3), z=2.0, steps=95, dt=0.2)["steps"] == 95
+
+
+def test_record_every_keeps_snapshots():
+    sim = CNNSimulator(device="cpu", chunk=10)
+    r = sim.run(None, torch.zeros(1, 4, 4), A=torch.zeros(3, 3), z=0.5, steps=100, dt=0.1, record_every=20)
+    assert len(r["history"]) == 1 + 100 // 20  # initial output plus one per 20 steps
+    means = [h.mean().item() for h in r["history"]]
+    assert means == sorted(means)  # monotone approach to 0.5
+    assert sim.run(None, torch.zeros(1, 4, 4), A=torch.zeros(3, 3), steps=20)["history"] == []
+
+
+def test_run_template_passes_simulator_options():
+    from cnnsim import run_template, templates as T
+
+    u = torch.ones(1, 5, 5)
+    y = run_template(T.INVERSION, u, device="cpu", chunk=5, steps=100)
+    assert y.device.type == "cpu" and (y < 0).all()
+
+
+@pytest.mark.parametrize("bkind", ["zeroflux", "periodic"])
+def test_rk4_gradients_through_dynamics(bkind):
+    g = torch.Generator().manual_seed(0)
+    x0 = torch.rand(1, 1, 4, 4, generator=g, dtype=torch.float64) * 2 - 1
+    bnd, out = Boundary(bkind), Output("tanh")
+    steps = make_steps(bnd, out, 5, integrator="rk4")
+    bias = torch.zeros_like(x0)
+    A = (torch.randn(1, 3, 3, generator=g, dtype=torch.float64) * 0.5).requires_grad_()
+    assert torch.autograd.gradcheck(lambda A: steps(x0, bias, A, 0.2), (A,))
