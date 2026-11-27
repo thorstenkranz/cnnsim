@@ -38,6 +38,16 @@ uv run --no-sync python -m pytest -q   # the CUDA/Triton tests are skipped
 
 Tests marked `slow` can be skipped with `-m "not slow"`.
 
+Code style is enforced by [ruff](https://docs.astral.sh/ruff/) (configured in `pyproject.toml`):
+
+```bash
+uv run ruff check --fix .
+uv run ruff format .
+```
+
+Optionally, run both on every commit with [pre-commit](https://pre-commit.com/):
+`uvx pre-commit install`.
+
 ## Pull requests
 
 1. Fork the repository and create a branch from `main`.
@@ -49,8 +59,9 @@ Tests marked `slow` can be skipped with `-m "not slow"`.
      `uv run python benchmark.py` before and after.
 3. If the public API or behaviour changes, update `README.md` and add an entry under
    `[Unreleased]` in [CHANGELOG.md](CHANGELOG.md) (Added / Changed / Fixed / Removed).
-4. Open a pull request against `main`. CI runs the tests on CPU for Python 3.11–3.14 (oldest
-   and newest supported PyTorch) and checks the package build; it must pass before merging.
+4. Open a pull request against `main`. CI runs ruff and the tests on CPU for Python 3.11–3.14
+   (oldest and newest supported PyTorch) and checks the package build; it must pass before
+   merging.
 
 GitHub's CI runners have no GPU, so the CUDA and Triton tests only run on a maintainer's
 machine. If your change affects GPU code and you couldn't test it, say so in the pull request.

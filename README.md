@@ -186,6 +186,7 @@ Contributions are welcome: see [CONTRIBUTING.md](https://github.com/thorstenkran
 git clone https://github.com/thorstenkranz/cnnsim && cd cnnsim
 uv sync                      # dev environment; torch from the CUDA 13 index (RTX 50xx needs CUDA >= 12.8)
 uv run python -m pytest -q   # CUDA/Triton tests are skipped without a GPU
+uv run ruff check . && uv run ruff format --check .
 uv run python demo.py        # -> output/templates.png
 uv run python benchmark.py
 ```

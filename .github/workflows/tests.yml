@@ -65,14 +65,27 @@ jobs:
           name: dist
           path: dist/
 
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+      - name: ruff (version pinned by uv.lock)
+        run: |
+          uv run --frozen --only-group dev ruff check --output-format=github .
+          uv run --frozen --only-group dev ruff format --check .
+
   # The required status check of the main-branch ruleset ("test"): one stable name that passes
-  # only if every matrix job and the build passed, so the matrix can change without touching
-  # the ruleset.
+  # only if every matrix job, the build and the lint passed, so the jobs can change without
+  # touching the ruleset.
   test:
     if: always()
-    needs: [test-matrix, build]
+    needs: [test-matrix, build, lint]
     runs-on: ubuntu-latest
     steps:
       - run: |
-          echo "test-matrix: ${{ needs.test-matrix.result }}, build: ${{ needs.build.result }}"
-          [ "${{ needs.test-matrix.result }}" = "success" ] && [ "${{ needs.build.result }}" = "success" ]
+          echo "test-matrix: ${{ needs.test-matrix.result }}, build: ${{ needs.build.result }}, lint: ${{ needs.lint.result }}"
+          [ "${{ needs.test-matrix.result }}" = "success" ] && [ "${{ needs.build.result }}" = "success" ] && [ "${{ needs.lint.result }}" = "success" ]
