@@ -163,3 +163,80 @@ def test_fit_tracks_best_on_val_only_with_eval_every():
     assert len(res.history["val"]) == 4  # epochs 0, 3, 6, 9
     torch.testing.assert_close(res.best_loss, torch.stack(res.history["val"]).min(0).values)
     torch.testing.assert_close(evaluate(res.best, loss, val, dyn).cpu(), res.best_loss, atol=1e-5, rtol=1e-5)
+
+
+def test_simulated_annealing_bookkeeping():
+    f = lambda X: (X**2).sum(1)  # noqa: E731
+    x0 = torch.full((4, 3), 2.0)
+    res = simulated_annealing(f, x0, iters=50, seed=1)
+    assert res.evaluations == 51 * 4 and len(res.history) == 50
+    assert all(a >= b for a, b in zip(res.history, res.history[1:]))  # best-so-far never worsens
+    assert res.best_x.shape == (4, 3) and res.best_f.shape == (4,)
+    torch.testing.assert_close(f(res.best_x), res.best_f)  # per-chain best is consistent
+    assert (res.best_f <= f(x0)).all()
+
+
+def test_optimisers_are_reproducible_with_a_seed():
+    f = lambda X: ((X - 1) ** 2).sum(1)  # noqa: E731
+    a = cmaes(f, torch.zeros(3), iters=20, seed=3)
+    b = cmaes(f, torch.zeros(3), iters=20, seed=3)
+    assert a.history == b.history
+    c = simulated_annealing(f, torch.zeros(2, 3), iters=20, seed=3)
+    d = simulated_annealing(f, torch.zeros(2, 3), iters=20, seed=3)
+    torch.testing.assert_close(c.best_x, d.best_x)
+
+
+def test_cmaes_stops_at_tol_f():
+    res = cmaes(lambda X: (X**2).sum(1), torch.ones(2), sigma0=0.5, iters=500, popsize=8, seed=0, tol_f=1e-2)
+    assert res.best_f <= 1e-2 and len(res.history) < 500
+    assert res.evaluations == 8 * len(res.history)
+
+
+def test_objective_chunking_gives_the_same_losses():
+    g = torch.Generator().manual_seed(0)
+    u = torch.rand(2, 1, 6, 6, generator=g) * 2 - 1
+    data = {"u": u, "target": -u.sign()}
+    dyn = Dynamics(steps=10, checkpoint_every=0)
+    p = TemplateParams(population=1)
+    loss = image_loss("mse")
+    v = torch.randn(5, p.n_free, generator=g) * 0.5
+    torch.testing.assert_close(objective(p, loss, data, dyn)(v), objective(p, loss, data, dyn, chunk=2)(v))
+
+
+def test_vector_load_and_select_roundtrip():
+    g = torch.Generator().manual_seed(0)
+    p = TemplateParams(TemplateSpec(sym_A="central"), population=3, generator=g)
+    v = torch.randn(3, p.n_free, generator=g)
+    p.load_vector(v)
+    torch.testing.assert_close(p.to_vector(), v)
+    A, B, z = p()
+    for got, want in zip(p.templates_from_vector(v), (A, B, z)):
+        torch.testing.assert_close(got, want)
+    q = p.select([2, 0])
+    assert q.P == 2
+    torch.testing.assert_close(q.to_vector(), v[[2, 0]])
+
+
+def test_settle_rate_drops_as_the_network_converges():
+    from cnnsim.train import settle_rate
+
+    g = torch.Generator().manual_seed(0)
+    u = torch.rand(2, 1, 8, 8, generator=g) * 2 - 1
+    tpl = tuple(t[None] for t in (torch.tensor(T.THRESHOLD.A), torch.tensor(T.THRESHOLD.B), torch.tensor(T.THRESHOLD.z)))
+    rates = []
+    for steps in (1, 200):
+        _, x, bias = simulate(tpl, u, Dynamics(steps=steps, x0="input", checkpoint_every=0), return_state=True)
+        rates.append(settle_rate(x, bias, tpl[0], Dynamics()).item())
+    assert rates[1] < 1e-3 < rates[0]
+
+
+def test_simulate_shapes_and_explicit_x0():
+    u = torch.zeros(3, 1, 5, 5)
+    p = TemplateParams(population=2)
+    dyn = Dynamics(steps=5, checkpoint_every=0)
+    assert simulate(p(), u, dyn).shape == (2, 3, 1, 5, 5)
+    # with A = B = 0, z = 0, x decays from x0 as exp(-t): sign of the output is that of x0
+    zero = TemplateParams(TemplateSpec(learn_A=False, learn_B=False, learn_z=False), A0=torch.zeros(3, 3),
+                          B0=torch.zeros(3, 3), z0=0.0)
+    y = simulate(zero(), u, dyn, x0=-torch.ones_like(u))
+    assert (y < 0).all()
