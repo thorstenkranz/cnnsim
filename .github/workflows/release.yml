@@ -1,0 +1,113 @@
+name: release
+
+# Push an annotated tag vX.Y.Z (or a pre-release vX.Y.ZrcN / aN / bN) on a commit of main whose
+# pyproject.toml has version X.Y.Z. Final releases go to PyPI, pre-releases to TestPyPI. Both
+# use trusted publishing (no API tokens); see RELEASING.md for the one-time setup.
+# Started by hand (workflow_dispatch), it uploads the current version to TestPyPI as a dry run,
+# without tag checks and without a GitHub release.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+      - id: v
+        name: Tag, pyproject version and changelog agree
+        shell: python
+        run: |
+          import os, re, tomllib
+          tag = os.environ["GITHUB_REF_NAME"]
+          version = tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]
+          if os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch":  # dry run to TestPyPI
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write(f"version={version}\nprerelease=true\n")
+              raise SystemExit(print(f"dry run: {version} from {tag} to TestPyPI"))
+          if tag != f"v{version}":
+              raise SystemExit(f"tag {tag} does not match pyproject version {version}")
+          pre = re.search(r"(a|b|rc)\d+$", version) is not None
+          changelog = open("CHANGELOG.md").read()
+          if not pre and not re.search(rf"^## \[{re.escape(version)}\] - \d{{4}}-\d{{2}}-\d{{2}}$", changelog, re.M):
+              raise SystemExit(f"CHANGELOG.md needs a dated section '## [{version}] - YYYY-MM-DD'")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"version={version}\nprerelease={str(pre).lower()}\n")
+          print(f"releasing {version} (pre-release: {pre})")
+
+  tests:
+    needs: check
+    uses: ./.github/workflows/tests.yml  # full CI incl. the build job, which uploads dist/
+
+  publish-pypi:
+    needs: [check, tests]
+    if: needs.check.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/cnnsim/${{ needs.check.outputs.version }}/
+    permissions:
+      id-token: write  # trusted publishing
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish-testpypi:
+    needs: [check, tests]
+    if: needs.check.outputs.prerelease == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/cnnsim/${{ needs.check.outputs.version }}/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  github-release:
+    needs: [check, publish-pypi, publish-testpypi]
+    if: always() && github.event_name == 'push' && needs.check.result == 'success' && (needs.publish-pypi.result == 'success' || needs.publish-testpypi.result == 'success')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: dist
+          path: dist/
+      - name: Create the GitHub release with the changelog section as notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.check.outputs.version }}
+          PRERELEASE: ${{ needs.check.outputs.prerelease }}
+        run: |
+          awk -v v="$VERSION" '
+            $0 ~ "^## \\[" v "\\]" { on = 1; next }
+            on && /^## \[/ { exit }
+            on && /^\[[^]]+\]: / { exit }
+            on { print }' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "Pre-release $VERSION for testing (TestPyPI)." > notes.md
+          flags=""
+          [ "$PRERELEASE" = "true" ] && flags="--prerelease"
+          gh release create "$GITHUB_REF_NAME" dist/* --title "cnnsim $VERSION" --notes-file notes.md --verify-tag $flags

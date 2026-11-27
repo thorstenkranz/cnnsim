@@ -5,25 +5,57 @@ description = "Chua–Yang cellular neural networks in PyTorch: GPU simulation a
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-requires-python = ">=3.12"
+authors = [{ name = "Thorsten Kranz" }]
+requires-python = ">=3.11"
 dependencies = [
-    "torch>=2.6",
-    "numpy>=1.26",
+    "torch>=2.8",
 ]
+keywords = [
+    "cellular neural network", "CNN", "Chua-Yang", "cellular automata", "dynamical systems",
+    "PyTorch", "Triton", "GPU", "template learning", "image processing",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Environment :: GPU :: NVIDIA CUDA",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/thorstenkranz/cnnsim"
+Source = "https://github.com/thorstenkranz/cnnsim"
+Issues = "https://github.com/thorstenkranz/cnnsim/issues"
+Changelog = "https://github.com/thorstenkranz/cnnsim/blob/main/CHANGELOG.md"
 
 [dependency-groups]
 dev = [
     "pytest>=8",
+    "numpy>=1.26",
     "matplotlib>=3.8",
     "pillow>=10",
 ]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["cnnsim"]
+
+[tool.hatch.build.targets.sdist]
+include = ["cnnsim", "tests", "demo.py", "benchmark.py", "README.md", "CHANGELOG.md", "LICENSE"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
