@@ -151,7 +151,11 @@ class TemplateParams(nn.Module):
         else:
             tz = torch.as_tensor(z0, **kw).expand(population).clone()
 
-        for name, t, learn in (("theta_A", tA, spec.learn_A), ("theta_B", tB, spec.learn_B), ("theta_z", tz, spec.learn_z)):
+        for name, t, learn in (
+            ("theta_A", tA, spec.learn_A),
+            ("theta_B", tB, spec.learn_B),
+            ("theta_z", tz, spec.learn_z),
+        ):
             if learn:
                 setattr(self, name, nn.Parameter(t))
             else:
@@ -166,7 +170,15 @@ class TemplateParams(nn.Module):
     # ------------------------------------------------------------- flat vector (learnable parts only)
 
     def _parts(self):
-        return [n for n, learn in (("theta_A", self.spec.learn_A), ("theta_B", self.spec.learn_B), ("theta_z", self.spec.learn_z)) if learn]
+        return [
+            n
+            for n, learn in (
+                ("theta_A", self.spec.learn_A),
+                ("theta_B", self.spec.learn_B),
+                ("theta_z", self.spec.learn_z),
+            )
+            if learn
+        ]
 
     @property
     def n_free(self) -> int:
@@ -198,7 +210,7 @@ class TemplateParams(nn.Module):
             cur.copy_(v[:, i : i + width].reshape(cur.shape))
             i += width
 
-    def select(self, members) -> "TemplateParams":
+    def select(self, members) -> TemplateParams:
         """A new TemplateParams containing only the given population members."""
         members = torch.as_tensor(members).reshape(-1)
         A, B, z = (t.detach()[members] for t in self())

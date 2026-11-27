@@ -9,7 +9,8 @@ static input and computed once ("bias map").
 
 from __future__ import annotations
 
-from typing import Callable, Literal
+from collections.abc import Callable
+from typing import Literal
 
 import torch
 import torch.nn.functional as F

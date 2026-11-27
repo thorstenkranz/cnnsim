@@ -1,4 +1,5 @@
-from importlib.metadata import PackageNotFoundError, version as _version
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _version
 
 from . import templates
 from .boundary import Boundary
@@ -12,12 +13,12 @@ except PackageNotFoundError:  # running from a source tree without install
     __version__ = "0+unknown"
 
 __all__ = [
-    "__version__",
     "Boundary",
     "CNNSimulator",
     "Output",
     "Prepared",
     "Template",
+    "__version__",
     "bias_map",
     "correlate",
     "correlate3x3",

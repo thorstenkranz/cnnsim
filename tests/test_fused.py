@@ -5,8 +5,7 @@ import zlib
 import pytest
 import torch
 
-from cnnsim import Boundary, CNNSimulator, Output, make_steps
-from cnnsim import fused
+from cnnsim import Boundary, CNNSimulator, Output, fused, make_steps
 from cnnsim.losses import mean_output
 from cnnsim.params import TemplateParams, TemplateSpec
 from cnnsim.train import Dynamics, simulate
@@ -37,7 +36,7 @@ def test_values_and_gradients_match_stencil(bkind, okind, k):
     torch.autograd.backward((out * w).sum())
 
     torch.testing.assert_close(out, ref, atol=1e-4, rtol=1e-4)  # float32, different summation order
-    for got, exp in zip((x0.grad, bias.grad, A.grad), g_ref):
+    for got, exp in zip((x0.grad, bias.grad, A.grad), g_ref, strict=True):
         torch.testing.assert_close(got, exp, atol=1e-4 * exp.abs().max().item(), rtol=1e-4)
 
 
@@ -51,21 +50,29 @@ def test_shared_template_and_bias_broadcast():
     out = fused.integrate(x0, bias, A, b, o, 30, 0.2)
     gf = torch.autograd.grad(out.sum(), (bias, A))
     torch.testing.assert_close(out, ref, atol=1e-5, rtol=1e-5)
-    for x, y in zip(gf, ga):
+    for x, y in zip(gf, ga, strict=True):
         torch.testing.assert_close(x, y, atol=1e-4, rtol=1e-4)
 
 
 def test_simulator_backend_fused():
     u = torch.rand(5, 32, 40, device=DEV) * 2 - 1
-    kw = dict(A=torch.randn(3, 3) * 0.3, B=torch.randn(3, 3) * 0.3, z=0.1, x0="input",
-              boundary=Boundary("spiral"), output=Output("sigmoid"), steps=200, dt=0.2)
+    kw = dict(
+        A=torch.randn(3, 3) * 0.3,
+        B=torch.randn(3, 3) * 0.3,
+        z=0.1,
+        x0="input",
+        boundary=Boundary("spiral"),
+        output=Output("sigmoid"),
+        steps=200,
+        dt=0.2,
+    )
     ref = CNNSimulator(device=DEV).run(None, u, **kw)["x"]
     x = CNNSimulator(device=DEV, backend="fused").run(None, u, **kw)["x"]
     torch.testing.assert_close(x, ref, atol=1e-4, rtol=1e-4)
 
 
 def test_train_simulate_backend_fused():
-    u = (torch.rand(6, 1, 16, 16, device=DEV) * 2 - 1)
+    u = torch.rand(6, 1, 16, 16, device=DEV) * 2 - 1
     grads, outs = [], []
     for backend in ("stencil", "fused"):
         dyn = Dynamics(boundary=Boundary("zeroflux"), output=Output("sigmoid"), steps=60, dt=0.2, backend=backend)
@@ -98,8 +105,13 @@ def test_train_simulate_fused_k5(bkind):
     grads = []
     for backend in ("stencil", "fused"):
         dyn = Dynamics(boundary=Boundary(bkind), output=Output("sigmoid"), steps=40, dt=0.2, backend=backend)
-        p = TemplateParams(TemplateSpec(size_A=5, size_B=5), population=2, scale=0.2,
-                           generator=torch.Generator().manual_seed(1), device=DEV)
+        p = TemplateParams(
+            TemplateSpec(size_A=5, size_B=5),
+            population=2,
+            scale=0.2,
+            generator=torch.Generator().manual_seed(1),
+            device=DEV,
+        )
         mean_output(simulate(p(), u, dyn)).pow(2).sum().backward()
         grads.append(torch.cat([q.grad.flatten() for q in p.parameters()]))
     torch.testing.assert_close(grads[1], grads[0], atol=1e-4, rtol=1e-3)

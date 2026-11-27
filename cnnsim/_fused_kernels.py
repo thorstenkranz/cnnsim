@@ -118,10 +118,25 @@ def _gather_T(base, i, j, mask, H, W, di: tl.constexpr, dj: tl.constexpr, R: tl.
 
 @triton.jit
 def _fwd_kernel(
-    x0_ptr, bias_ptr, A_ptr, a_stride, xout_ptr, hist_ptr, scratch_ptr,
-    H, W, steps, dt, beta, bval,
-    K: tl.constexpr, BOUND: tl.constexpr, OUT: tl.constexpr, STORE: tl.constexpr,
-    BH: tl.constexpr, BW: tl.constexpr,
+    x0_ptr,
+    bias_ptr,
+    A_ptr,
+    a_stride,
+    xout_ptr,
+    hist_ptr,
+    scratch_ptr,
+    H,
+    W,
+    steps,
+    dt,
+    beta,
+    bval,
+    K: tl.constexpr,
+    BOUND: tl.constexpr,
+    OUT: tl.constexpr,
+    STORE: tl.constexpr,
+    BH: tl.constexpr,
+    BW: tl.constexpr,
 ):
     n = tl.program_id(0)
     HW = H * W
@@ -151,10 +166,27 @@ def _fwd_kernel(
 
 @triton.jit
 def _bwd_kernel(
-    gT_ptr, hist_ptr, A_ptr, a_stride, scr_y_ptr, scr_g_ptr, gb_ptr, gA_ptr, g0_ptr,
-    H, W, steps, dt, beta, bval,
-    K: tl.constexpr, BOUND: tl.constexpr, OUT: tl.constexpr, GRAD_A: tl.constexpr,
-    BH: tl.constexpr, BW: tl.constexpr,
+    gT_ptr,
+    hist_ptr,
+    A_ptr,
+    a_stride,
+    scr_y_ptr,
+    scr_g_ptr,
+    gb_ptr,
+    gA_ptr,
+    g0_ptr,
+    H,
+    W,
+    steps,
+    dt,
+    beta,
+    bval,
+    K: tl.constexpr,
+    BOUND: tl.constexpr,
+    OUT: tl.constexpr,
+    GRAD_A: tl.constexpr,
+    BH: tl.constexpr,
+    BW: tl.constexpr,
 ):
     n = tl.program_id(0)
     HW = H * W
@@ -190,5 +222,3 @@ def _bwd_kernel(
         g = (1.0 - dt) * g + dt * _fprime(x, beta, OUT) * at
     tl.store(gb_ptr + n * HW + off, gb, mask=mask)
     tl.store(g0_ptr + n * HW + off, g, mask=mask)
-
-

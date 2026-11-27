@@ -56,13 +56,27 @@ def _next_pow2(n: int) -> int:
     return 1 << (n - 1).bit_length()
 
 
-def supported(boundary: Boundary, out: Output, k: int, h: int, w: int, device: torch.device | str = "cuda",
-              dtype: torch.dtype = torch.float32) -> bool:
+def supported(
+    boundary: Boundary,
+    out: Output,
+    k: int,
+    h: int,
+    w: int,
+    device: torch.device | str = "cuda",
+    dtype: torch.dtype = torch.float32,
+) -> bool:
     """Whether the fused kernels handle this configuration (the kernels compute in float32 only)."""
     return (
-        HAVE_TRITON and torch.device(device).type == "cuda" and dtype == torch.float32
-        and boundary.kind in _BOUND and out.kind in _OUT and k % 2 == 1 and k <= 7
-        and h * w <= MAX_CELLS and h >= k and w >= k
+        HAVE_TRITON
+        and torch.device(device).type == "cuda"
+        and dtype == torch.float32
+        and boundary.kind in _BOUND
+        and out.kind in _OUT
+        and k % 2 == 1
+        and k <= 7
+        and h * w <= MAX_CELLS
+        and h >= k
+        and w >= k
     )
 
 
@@ -87,8 +101,16 @@ def _consts(boundary: Boundary, out: Output):
     return _BOUND[boundary.kind], _OUT[out.kind], float(out.beta), float(boundary.value)
 
 
-def forward(x0: torch.Tensor, bias: torch.Tensor, A: torch.Tensor, boundary: Boundary, out: Output,
-            steps: int, dt: float, store_history: bool = False):
+def forward(
+    x0: torch.Tensor,
+    bias: torch.Tensor,
+    A: torch.Tensor,
+    boundary: Boundary,
+    out: Output,
+    steps: int,
+    dt: float,
+    store_history: bool = False,
+):
     """Integrate `steps` Euler steps. x0, bias (N,1,H,W); A (1|N, k, k). Returns (x_T, history)."""
     _check_float32(x0=x0, bias=bias, A=A)
     N, _, H, W = x0.shape
@@ -102,13 +124,40 @@ def forward(x0: torch.Tensor, bias: torch.Tensor, A: torch.Tensor, boundary: Bou
     hist = torch.empty(N, steps, H * W, device=x0.device, dtype=torch.float32) if store_history else scratch
     bnd, outc, beta, bval = _consts(boundary, out)
     BH, BW, warps = _launch_cfg(H, W, k, "fwd")
-    _k()._fwd_kernel[(N,)](x0, bias, A, a_stride, xout, hist, scratch, H, W, steps, float(dt), beta, bval,
-                      K=k, BOUND=bnd, OUT=outc, STORE=store_history, BH=BH, BW=BW, num_warps=warps)
+    _k()._fwd_kernel[(N,)](
+        x0,
+        bias,
+        A,
+        a_stride,
+        xout,
+        hist,
+        scratch,
+        H,
+        W,
+        steps,
+        float(dt),
+        beta,
+        bval,
+        K=k,
+        BOUND=bnd,
+        OUT=outc,
+        STORE=store_history,
+        BH=BH,
+        BW=BW,
+        num_warps=warps,
+    )
     return xout, (hist if store_history else None)
 
 
-def backward(gT: torch.Tensor, hist: torch.Tensor, A: torch.Tensor, boundary: Boundary, out: Output, dt: float,
-             grad_A: bool = True):
+def backward(
+    gT: torch.Tensor,
+    hist: torch.Tensor,
+    A: torch.Tensor,
+    boundary: Boundary,
+    out: Output,
+    dt: float,
+    grad_A: bool = True,
+):
     """Adjoint pass. Returns (d bias (N,1,H,W), d A (N,k,k), d x0 (N,1,H,W))."""
     N, _, H, W = gT.shape
     k = A.shape[-1]
@@ -125,8 +174,30 @@ def backward(gT: torch.Tensor, hist: torch.Tensor, A: torch.Tensor, boundary: Bo
     # per-step, per-row partial sums of dA (summed on the host); written completely by the kernel
     gA = torch.empty(N, steps, k * k, BH, device=gT.device, dtype=torch.float32) if grad_A else gT.new_zeros(1)
     bnd, outc, beta, bval = _consts(boundary, out)
-    _k()._bwd_kernel[(N,)](gT, hist, A, a_stride, sy, sg, gb, gA, g0, H, W, steps, float(dt), beta, bval,
-                      K=k, BOUND=bnd, OUT=outc, GRAD_A=grad_A, BH=BH, BW=BW, num_warps=warps)
+    _k()._bwd_kernel[(N,)](
+        gT,
+        hist,
+        A,
+        a_stride,
+        sy,
+        sg,
+        gb,
+        gA,
+        g0,
+        H,
+        W,
+        steps,
+        float(dt),
+        beta,
+        bval,
+        K=k,
+        BOUND=bnd,
+        OUT=outc,
+        GRAD_A=grad_A,
+        BH=BH,
+        BW=BW,
+        num_warps=warps,
+    )
     gA = gA.sum((1, 3)).view(N, k, k) if grad_A else torch.zeros(N, k, k, device=gT.device)
     return gb, gA, g0
 
@@ -155,8 +226,9 @@ class _FusedEuler(torch.autograd.Function):
         return g0, gb, gA, None, None, None, None
 
 
-def integrate(x0: torch.Tensor, bias: torch.Tensor, A: torch.Tensor, boundary: Boundary, out: Output,
-              steps: int, dt: float) -> torch.Tensor:
+def integrate(
+    x0: torch.Tensor, bias: torch.Tensor, A: torch.Tensor, boundary: Boundary, out: Output, steps: int, dt: float
+) -> torch.Tensor:
     """Differentiable fused Euler integration: returns x after `steps` steps (N,1,H,W)."""
     N = max(x0.shape[0], bias.shape[0], A.shape[0])
     x0 = x0.expand(N, *x0.shape[1:])

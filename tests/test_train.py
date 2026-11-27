@@ -1,9 +1,12 @@
 """Template parameterisation, differentiable simulation, training and gradient-free optimisers."""
 
+from itertools import pairwise
+
 import pytest
 import torch
 
-from cnnsim import Boundary, CNNSimulator, Output, templates as T
+from cnnsim import Boundary, CNNSimulator, Output
+from cnnsim import templates as T
 from cnnsim.losses import aggregate, image_loss, mean_output, msen, pixel_error_rate
 from cnnsim.optim import cmaes, objective, simulated_annealing
 from cnnsim.params import TemplateParams, TemplateSpec, orbit_map
@@ -14,7 +17,15 @@ DEV = "cuda" if torch.cuda.is_available() else "cpu"
 
 @pytest.mark.parametrize(
     "k,sym,n",
-    [(3, "none", 9), (3, "central", 5), (3, "mirror", 4), (3, "rot90", 3), (3, "isotropic", 3), (5, "isotropic", 6), (3, "mirror_lr", 6)],
+    [
+        (3, "none", 9),
+        (3, "central", 5),
+        (3, "mirror", 4),
+        (3, "rot90", 3),
+        (3, "isotropic", 3),
+        (5, "isotropic", 6),
+        (3, "mirror_lr", 6),
+    ],
 )
 def test_orbit_counts(k, sym, n):
     assert orbit_map(k, sym)[1] == n
@@ -43,7 +54,7 @@ def test_fixed_parts_and_initial_values():
     spec = TemplateSpec(learn_A=False)
     p = TemplateParams(spec, population=2, A0=T.EDGE.A, B0=T.EDGE.B, z0=T.EDGE.z)
     assert p.n_free == 9 + 1
-    A, B, z = p()
+    A, _, z = p()
     torch.testing.assert_close(A[1], torch.tensor(T.EDGE.A, dtype=torch.float32))
     assert z[0].item() == T.EDGE.z
 
@@ -58,8 +69,18 @@ def test_simulate_matches_simulator():
     assert y.shape == (2, 3, 1, 12, 14)
     sim = CNNSimulator(device=DEV)
     for i in range(2):
-        ref = sim.run(None, u, A=A[i].detach(), B=B[i].detach(), z=z[i].item(), x0="input",
-                      boundary=Boundary("spiral"), output=Output("sigmoid"), steps=40, dt=0.2)["y"]
+        ref = sim.run(
+            None,
+            u,
+            A=A[i].detach(),
+            B=B[i].detach(),
+            z=z[i].item(),
+            x0="input",
+            boundary=Boundary("spiral"),
+            output=Output("sigmoid"),
+            steps=40,
+            dt=0.2,
+        )["y"]
         torch.testing.assert_close(y[i].detach(), ref, atol=1e-5, rtol=1e-5)
 
 
@@ -107,8 +128,10 @@ def test_cmaes_finds_template_via_objective():
     u = (torch.rand(4, 1, 10, 10, generator=g) * 2 - 1).to(DEV)
     data = {"u": u, "target": -u.sign()}
     dyn = Dynamics(boundary=Boundary("fixed", 0.0), output=Output("pwl"), steps=30, dt=0.2, x0="zero")
-    spec = TemplateSpec(mask_A=torch.eye(3, dtype=torch.bool) & torch.eye(3, dtype=torch.bool).flip(0),
-                        mask_B=torch.eye(3, dtype=torch.bool) & torch.eye(3, dtype=torch.bool).flip(0))
+    spec = TemplateSpec(
+        mask_A=torch.eye(3, dtype=torch.bool) & torch.eye(3, dtype=torch.bool).flip(0),
+        mask_B=torch.eye(3, dtype=torch.bool) & torch.eye(3, dtype=torch.bool).flip(0),
+    )
     p = TemplateParams(spec, population=1, device=DEV)
     assert p.n_free == 3  # centre of A, centre of B, z
     f = objective(p, lambda y, b: aggregate(msen(y, b["target"])), data, dyn)
@@ -125,7 +148,7 @@ def test_learn_edge_template_from_examples():
         return ((torch.nn.functional.avg_pool2d(u, 3, 1, 1) > 0.3).float() * 2 - 1).to(DEV)
 
     sim = CNNSimulator(device=DEV)
-    make = lambda n: (lambda u: {"u": u, "target": sim.run(T.EDGE, u, steps=200, dt=0.1)["y"].sign()})(blobs(n))  # noqa: E731
+    make = lambda n: (lambda u: {"u": u, "target": sim.run(T.EDGE, u, steps=200, dt=0.1)["y"].sign()})(blobs(n))
     train, val = make(24), make(48)
     dyn = Dynamics(boundary=Boundary("fixed", -1.0), output=Output("tanh"), steps=60, dt=0.2, x0="zero", compile=True)
     p = TemplateParams(population=8, generator=torch.Generator().manual_seed(1), device=DEV)
@@ -166,18 +189,18 @@ def test_fit_tracks_best_on_val_only_with_eval_every():
 
 
 def test_simulated_annealing_bookkeeping():
-    f = lambda X: (X**2).sum(1)  # noqa: E731
+    f = lambda X: (X**2).sum(1)
     x0 = torch.full((4, 3), 2.0)
     res = simulated_annealing(f, x0, iters=50, seed=1)
     assert res.evaluations == 51 * 4 and len(res.history) == 50
-    assert all(a >= b for a, b in zip(res.history, res.history[1:]))  # best-so-far never worsens
+    assert all(a >= b for a, b in pairwise(res.history))  # best-so-far never worsens
     assert res.best_x.shape == (4, 3) and res.best_f.shape == (4,)
     torch.testing.assert_close(f(res.best_x), res.best_f)  # per-chain best is consistent
     assert (res.best_f <= f(x0)).all()
 
 
 def test_optimisers_are_reproducible_with_a_seed():
-    f = lambda X: ((X - 1) ** 2).sum(1)  # noqa: E731
+    f = lambda X: ((X - 1) ** 2).sum(1)
     a = cmaes(f, torch.zeros(3), iters=20, seed=3)
     b = cmaes(f, torch.zeros(3), iters=20, seed=3)
     assert a.history == b.history
@@ -210,7 +233,7 @@ def test_vector_load_and_select_roundtrip():
     p.load_vector(v)
     torch.testing.assert_close(p.to_vector(), v)
     A, B, z = p()
-    for got, want in zip(p.templates_from_vector(v), (A, B, z)):
+    for got, want in zip(p.templates_from_vector(v), (A, B, z), strict=True):
         torch.testing.assert_close(got, want)
     q = p.select([2, 0])
     assert q.P == 2
@@ -222,7 +245,9 @@ def test_settle_rate_drops_as_the_network_converges():
 
     g = torch.Generator().manual_seed(0)
     u = torch.rand(2, 1, 8, 8, generator=g) * 2 - 1
-    tpl = tuple(t[None] for t in (torch.tensor(T.THRESHOLD.A), torch.tensor(T.THRESHOLD.B), torch.tensor(T.THRESHOLD.z)))
+    tpl = tuple(
+        t[None] for t in (torch.tensor(T.THRESHOLD.A), torch.tensor(T.THRESHOLD.B), torch.tensor(T.THRESHOLD.z))
+    )
     rates = []
     for steps in (1, 200):
         _, x, bias = simulate(tpl, u, Dynamics(steps=steps, x0="input", checkpoint_every=0), return_state=True)
@@ -236,7 +261,8 @@ def test_simulate_shapes_and_explicit_x0():
     dyn = Dynamics(steps=5, checkpoint_every=0)
     assert simulate(p(), u, dyn).shape == (2, 3, 1, 5, 5)
     # with A = B = 0, z = 0, x decays from x0 as exp(-t): sign of the output is that of x0
-    zero = TemplateParams(TemplateSpec(learn_A=False, learn_B=False, learn_z=False), A0=torch.zeros(3, 3),
-                          B0=torch.zeros(3, 3), z0=0.0)
+    zero = TemplateParams(
+        TemplateSpec(learn_A=False, learn_B=False, learn_z=False), A0=torch.zeros(3, 3), B0=torch.zeros(3, 3), z0=0.0
+    )
     y = simulate(zero(), u, dyn, x0=-torch.ones_like(u))
     assert (y < 0).all()

@@ -95,8 +95,14 @@ def test_bias_map_forms():
 def test_template_output_and_input_boundary_are_used():
     u = torch.ones(1, 5, 5)
     # B sums the 4-neighbourhood of u; with a white (-1) input boundary the corners see 2 virtual cells
-    t = Template(A=[[0.0]], B=[[0, 1, 0], [1, 0, 1], [0, 1, 0]], z=0.0,
-                 boundary=Boundary("zeroflux"), boundary_u=Boundary("fixed", -1.0), output=Output("identity"))
+    t = Template(
+        A=[[0.0]],
+        B=[[0, 1, 0], [1, 0, 1], [0, 1, 0]],
+        z=0.0,
+        boundary=Boundary("zeroflux"),
+        boundary_u=Boundary("fixed", -1.0),
+        output=Output("identity"),
+    )
     p = CNNSimulator(device="cpu").prepare(t, u)
     assert p.bias[0, 0, 0, 0] == 0.0 and p.bias[0, 0, 2, 2] == 4.0
     assert p.output.kind == "identity"
@@ -158,8 +164,14 @@ def test_templates_are_immutable_and_do_not_share_state():
 def test_run_takes_exactly_the_requested_steps(mode, steps):
     g = torch.Generator().manual_seed(0)
     u = (torch.rand(2, 12, 13, generator=g) * 2 - 1).to(DEV)
-    kw = dict(A=torch.randn(3, 3, generator=g) * 0.4, B=torch.randn(3, 3, generator=g) * 0.4, z=0.1,
-              x0="input", boundary=Boundary("zeroflux"), output=Output("tanh"))
+    kw = dict(
+        A=torch.randn(3, 3, generator=g) * 0.4,
+        B=torch.randn(3, 3, generator=g) * 0.4,
+        z=0.1,
+        x0="input",
+        boundary=Boundary("zeroflux"),
+        output=Output("tanh"),
+    )
     sim = CNNSimulator(device=DEV, chunk=20, **mode)
     r = sim.run(None, u, steps=steps, dt=0.2, **kw)
     assert r["steps"] == steps
@@ -172,8 +184,10 @@ def test_import_leaves_torch_dynamo_config_alone():
     import subprocess
     import sys
 
-    code = ("import torch._dynamo as d; before = d.config.cache_size_limit; import cnnsim; "
-            "assert d.config.cache_size_limit == before, (before, d.config.cache_size_limit)")
+    code = (
+        "import torch._dynamo as d; before = d.config.cache_size_limit; import cnnsim; "
+        "assert d.config.cache_size_limit == before, (before, d.config.cache_size_limit)"
+    )
     subprocess.run([sys.executable, "-c", code], check=True)
 
 
@@ -248,7 +262,8 @@ def test_record_every_keeps_snapshots():
 
 
 def test_run_template_passes_simulator_options():
-    from cnnsim import run_template, templates as T
+    from cnnsim import run_template
+    from cnnsim import templates as T
 
     u = torch.ones(1, 5, 5)
     y = run_template(T.INVERSION, u, device="cpu", chunk=5, steps=100)
