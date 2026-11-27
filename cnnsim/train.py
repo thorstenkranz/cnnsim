@@ -34,7 +34,23 @@ X0 = Literal["input", "zero", "ones", "minus_ones"]
 
 @dataclass(frozen=True)
 class Dynamics:
-    """Everything about a run except the templates and the data."""
+    """Everything about a run except the templates and the data.
+
+    Attributes:
+        boundary: Boundary for the feedback term (and the input unless `boundary_u` is set).
+        boundary_u: Boundary for the input term, if it differs.
+        output: Cell output function.
+        steps: Number of integration steps.
+        dt: Time step.
+        integrator: `"euler"` or `"rk4"`.
+        x0: Initial state: `"input"`, `"zero"`, `"ones"` or `"minus_ones"`.
+        checkpoint_every: Steps per gradient-checkpointed chunk; 0 disables checkpointing.
+        compile: `torch.compile` the step chunks (forward and backward).
+        backend: `"stencil"`, or `"fused"` for the Triton kernels (Euler only; see
+            `cnnsim.fused`). Fused is used for all forward passes and for training where
+            `fused.prefer_for_training` says so; otherwise the stencil path (then set
+            `compile=True`).
+    """
 
     boundary: Boundary = Boundary("fixed")
     boundary_u: Boundary | None = None
@@ -43,10 +59,8 @@ class Dynamics:
     dt: float = 0.2
     integrator: Integrator = "euler"
     x0: X0 = "input"
-    checkpoint_every: int = 20  # steps per checkpointed chunk (0 = no checkpointing)
-    compile: bool = False  # torch.compile the step chunks (forward and backward)
-    # "fused": Triton kernels (Euler only, see cnnsim.fused) for all forward passes and for
-    # training where fused.prefer_for_training(); otherwise the stencil path (set compile=True)
+    checkpoint_every: int = 20
+    compile: bool = False
     backend: Literal["stencil", "fused"] = "stencil"
 
 
@@ -75,12 +89,20 @@ def simulate(
     dyn: Dynamics,
     x0: torch.Tensor | None = None,
     return_state: bool = False,
-):
+) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Differentiable simulation of P candidates on D samples.
 
-    templates: A (P,kA,kA), B (P,kB,kB), z (P,) — e.g. TemplateParams()()
-    u: (D,1,H,W) inputs; x0: optional (D,1,H,W) initial states (default: dyn.x0)
-    Returns y (P,D,1,H,W) (and the final state x if return_state).
+    Args:
+        templates: `(A, B, z)` with shapes `(P, kA, kA)`, `(P, kB, kB)`, `(P,)`, e.g. the
+            output of a `TemplateParams` module.
+        u: Inputs of shape `(D, 1, H, W)`.
+        dyn: Boundary, output function, steps, integrator and backend.
+        x0: Initial states of shape `(D, 1, H, W)`; default: `dyn.x0`.
+        return_state: Also return the final state and the bias map.
+
+    Returns:
+        The outputs y of shape `(P, D, 1, H, W)`; with `return_state`, the tuple
+            `(y, x, bias)`, all of that shape.
     """
     A, B, z = templates
     P, D = A.shape[0], u.shape[0]
@@ -141,6 +163,8 @@ LossFn = Callable[[torch.Tensor, dict], torch.Tensor]  # (y (P,D,1,H,W), batch) 
 
 @dataclass
 class FitResult:
+    """Result of `fit`. `best()` returns the best templates `(A, B, z)` per candidate."""
+
     params: TemplateParams  # parameters at the end of training
     best: TemplateParams  # per member: parameters with the lowest monitored loss
     best_loss: torch.Tensor  # (P,)
@@ -193,15 +217,37 @@ def fit(
     callback: Callable[[int, dict], None] | None = None,
     verbose: bool = False,
 ) -> FitResult:
-    """Train all P candidates with Adam(W).
+    """Train all P candidates with AdamW.
 
-    train/val: dicts of tensors with a leading sample dimension D; must contain "u" (D,1,H,W),
-        optionally "x0"; everything else (e.g. "target") is passed to loss_fn sliced by batch.
-    loss_fn(y, batch) -> (P,): one loss per candidate. Their sum is minimised; since the
-        candidates do not share parameters, each one follows its own gradient.
-    settle_weight: adds settle_weight * mean |dx/dt| at the final state (convergence penalty).
-    The best parameters per candidate are tracked on val (if given; on the epochs where it is
-    evaluated, see eval_every) else on the train loss.
+    The best parameters per candidate are tracked on the validation loss if `val` is given (on
+    the epochs where it is evaluated, see `eval_every`), otherwise on the training loss.
+
+    Args:
+        params: The candidates; trained in place.
+        loss_fn: `loss_fn(y, batch) -> (P,)`, one loss per candidate, with `y` of shape
+            `(P, D, 1, H, W)`. Their sum is minimised; since the candidates do not share
+            parameters, each one follows its own gradient.
+        train: Dict of tensors with a leading sample dimension D. Must contain `"u"`
+            `(D, 1, H, W)`, optionally `"x0"`; everything else (e.g. `"target"`) is passed
+            to `loss_fn`, sliced to the minibatch.
+        dyn: The dynamics.
+        val: Validation data, like `train`.
+        epochs: Number of passes over the training data.
+        lr: Learning rate.
+        weight_decay: AdamW weight decay.
+        batch_size: Minibatch size; None for full batches.
+        grad_clip: Clip each candidate's gradient to this norm; None to disable.
+        schedule: Learning-rate schedule, `"cosine"` (decay to 0) or `"constant"`.
+        settle_weight: Adds `settle_weight × mean |dx/dt|` at the final state to the loss
+            (a convergence penalty).
+        eval_every: Evaluate the validation loss every this many epochs (and in the last).
+        seed: Seed for the minibatch order.
+        callback: Called as `callback(epoch, info)` after every epoch, with `info` holding
+            `"epoch"`, `"train"`, `"val"` and `"best"` losses.
+        verbose: Print progress about ten times per run.
+
+    Returns:
+        The final and the best parameters, the best losses and the loss history.
     """
     gen = torch.Generator().manual_seed(seed)
     opt = torch.optim.AdamW([p for p in params.parameters() if p.requires_grad], lr=lr, weight_decay=weight_decay)

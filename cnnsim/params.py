@@ -12,6 +12,7 @@ CMA-ES populations, parameter sweeps); the simulator handles per-sample template
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import torch
@@ -62,8 +63,21 @@ def orbit_map(k: int, symmetry: str = "none", mask: torch.Tensor | None = None) 
 class TemplateSpec:
     """Which parts of (A, B, z) are learnable and how they are constrained.
 
-    size_*: odd template size; sym_*: key of SYMMETRIES; mask_*: bool (k,k), False = fixed 0.
-    learn_*: if False, the part is fixed to its initial value (A0/B0/z0 or zeros).
+    Attributes:
+        size_A: Odd size k of the feedback template A.
+        size_B: Odd size k of the control template B.
+        sym_A: Symmetry of A, a key of `SYMMETRIES`: `"none"`, `"central"`, `"mirror_lr"`,
+            `"mirror_ud"`, `"mirror"`, `"rot90"` or `"isotropic"`.
+        sym_B: Symmetry of B.
+        mask_A: Boolean `(k, k)` mask; cells where it is False are fixed to 0.
+        mask_B: Mask for B.
+        learn_A: If False, A is fixed to its initial value (`A0`, or zeros).
+        learn_B: If False, B is fixed to its initial value.
+        learn_z: If False, z is fixed to its initial value.
+
+    Raises:
+        ValueError: For an even or non-positive size, an unknown symmetry, or a mask of the
+            wrong shape.
     """
 
     size_A: int = 3
@@ -112,9 +126,20 @@ def _gather(theta: torch.Tensor, index: torch.Tensor) -> torch.Tensor:
 class TemplateParams(nn.Module):
     """Learnable (A, B, z) for a population of P candidates.
 
-    init: initial templates A0 (k,k) or (P,k,k), B0, z0 (float or (P,)); entries not given are
-    drawn from N(0, scale²) (z: N(0, scale²) as well). Initial values are projected onto the
-    constraint set.
+    Calling the module returns the templates `(A, B, z)` with shapes `(P, kA, kA)`,
+    `(P, kB, kB)` and `(P,)`, built from one free parameter per orbit of template cells.
+
+    Args:
+        spec: Sizes, symmetries, masks and learnable parts (default: unconstrained 3×3).
+        population: Number of independent candidates P.
+        A0: Initial A, shape `(k, k)` (shared) or `(P, k, k)`; drawn from N(0, scale²) if
+            not given. Initial values are projected onto the constraint set.
+        B0: Initial B, as `A0`.
+        z0: Initial z, a float or shape `(P,)`; drawn from N(0, scale²) if not given.
+        scale: Standard deviation of the random initialisation.
+        generator: Random generator for the initialisation.
+        device: Device of the parameters.
+        dtype: Data type of the parameters.
     """
 
     def __init__(
@@ -122,13 +147,13 @@ class TemplateParams(nn.Module):
         spec: TemplateSpec | None = None,
         population: int = 1,
         *,
-        A0=None,
-        B0=None,
-        z0=None,
+        A0: torch.Tensor | Sequence[Sequence[float]] | None = None,
+        B0: torch.Tensor | Sequence[Sequence[float]] | None = None,
+        z0: torch.Tensor | float | None = None,
         scale: float = 0.5,
         generator: torch.Generator | None = None,
-        device=None,
-        dtype=torch.float32,
+        device: torch.device | str | None = None,
+        dtype: torch.dtype = torch.float32,
     ):
         super().__init__()
         self.spec = spec = spec or TemplateSpec()

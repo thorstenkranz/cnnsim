@@ -32,11 +32,18 @@ def as_template_batch(t: torch.Tensor) -> torch.Tensor:
 
 
 def correlate(t: torch.Tensor, w: torch.Tensor, boundary: Boundary, backend: Backend = "stencil") -> torch.Tensor:
-    """'same'-size correlation of t (N,1,H,W) with templates w (1|N, k, k), boundary-padded.
+    """Same-size correlation of `t` with the templates `w`, boundary-padded.
 
-    backend="stencil": k² shifted multiply-adds; under torch.compile they fuse with the
-        padding and the surrounding elementwise ops into one kernel.
-    backend="conv": F.conv2d (cuDNN). Fast on its own but cannot fuse.
+    Args:
+        t: Tensor of shape `(N, 1, H, W)`.
+        w: Templates of shape `(1, k, k)` (shared) or `(N, k, k)` (one per sample), odd k.
+        boundary: How the virtual cells around the grid are filled.
+        backend: `"stencil"`: k² shifted multiply-adds; under `torch.compile` they fuse with
+            the padding and the surrounding elementwise operations into one kernel.
+            `"conv"`: `F.conv2d` (cuDNN); fast on its own but cannot fuse.
+
+    Returns:
+        Tensor of shape `(N, 1, H, W)`.
     """
     n, _, h, wd = t.shape
     k = w.shape[-1]
@@ -61,13 +68,14 @@ def correlate(t: torch.Tensor, w: torch.Tensor, boundary: Boundary, backend: Bac
 def bias_map(
     u: torch.Tensor, B: torch.Tensor, z: torch.Tensor, boundary: Boundary, backend: Backend = "stencil"
 ) -> torch.Tensor:
-    """B ⊛ u + z."""
+    """The control term `B ⊛ u + z`, constant in time for a static input."""
     return correlate(u, B, boundary, backend) + z
 
 
 def derivative(
     x: torch.Tensor, bias: torch.Tensor, A: torch.Tensor, boundary: Boundary, out: Output, backend: Backend = "stencil"
 ) -> torch.Tensor:
+    """Right-hand side `dx/dt = -x + A ⊛ f(x) + bias` of the state equation."""
     return -x + correlate(out(x), A, boundary, backend) + bias
 
 
@@ -78,7 +86,11 @@ def make_steps(
     integrator: Integrator = "euler",
     backend: Backend = "stencil",
 ) -> Callable[[torch.Tensor, torch.Tensor, torch.Tensor, float], torch.Tensor]:
-    """Return steps(x, bias, A, dt) performing k integration steps (differentiable)."""
+    """Build a function `steps(x, bias, A, dt)` that performs `k` integration steps.
+
+    The returned function is differentiable with respect to all its tensor arguments and can
+    be wrapped with `torch.compile` (see `compile_steps`).
+    """
 
     def f(x, bias, A):
         return derivative(x, bias, A, boundary, out, backend)

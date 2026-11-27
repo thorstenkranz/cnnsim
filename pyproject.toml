@@ -35,6 +35,7 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://github.com/thorstenkranz/cnnsim"
+Documentation = "https://thorstenkranz.github.io/cnnsim/"
 Source = "https://github.com/thorstenkranz/cnnsim"
 Issues = "https://github.com/thorstenkranz/cnnsim/issues"
 Changelog = "https://github.com/thorstenkranz/cnnsim/blob/main/CHANGELOG.md"
@@ -46,6 +47,10 @@ dev = [
     "numpy>=1.26",
     "matplotlib>=3.8",
     "pillow>=10",
+]
+docs = [
+    "mkdocs-material>=9.6",
+    "mkdocstrings-python>=1.16",
 ]
 
 [build-system]

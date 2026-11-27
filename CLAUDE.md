@@ -10,7 +10,10 @@ template learning. It must stay independent of any particular application: nothi
 - Conventions: +1 = black, −1 = white; templates are correlations (like torch conv2d); tensors (N,1,H,W).
 - Every feature gets tests, including gradient checks for anything differentiable, and keeps the
   fast inference path (compile + CUDA graph) working; check `benchmark.py` for regressions.
-- Public API changes: update README.md, add an entry under `[Unreleased]` in CHANGELOG.md
+- Docs: user guide in `docs/`, API reference from Google-style docstrings (mkdocs-material +
+  mkdocstrings, `mkdocs.yml`); `uv run --group docs mkdocs build --strict` must pass. Deployed to
+  GitHub Pages from main by `.github/workflows/docs.yml`.
+- Public API changes: update docstrings, README.md and `docs/`, add an entry under `[Unreleased]` in CHANGELOG.md
   (Keep a Changelog format). Releases (version bump, tag `vX.Y.Z`, PyPI via the release
   workflow) follow RELEASING.md; work goes through branches and PRs (main is protected).
 - Supported: Python >= 3.11, PyTorch >= 2.8 (2.6/2.7 fail to compile the spiral padding on CPU).
