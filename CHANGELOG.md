@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Zenodo DOI (10.5281/zenodo.24574054, all versions) in `CITATION.cff`; PyPI, Python-version
+  and DOI badges in the README.
+
 ## [0.4.0] - 2026-11-27
 
 First release on PyPI.
