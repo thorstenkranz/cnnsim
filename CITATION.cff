@@ -12,6 +12,7 @@ authors:
   - family-names: Kranz
     given-names: Thorsten
 version: 0.4.0
+doi: "10.5281/zenodo.24574054"  # concept DOI: all versions, resolves to the latest
 date-released: "2026-11-27"
 license: MIT
 repository-code: "https://github.com/thorstenkranz/cnnsim"

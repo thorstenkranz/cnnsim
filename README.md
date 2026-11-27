@@ -1,6 +1,9 @@
 # cnnsim: Chua–Yang cellular neural networks in PyTorch
 
 [![tests](https://github.com/thorstenkranz/cnnsim/actions/workflows/tests.yml/badge.svg)](https://github.com/thorstenkranz/cnnsim/actions/workflows/tests.yml)
+[![PyPI](https://img.shields.io/pypi/v/cnnsim.svg)](https://pypi.org/project/cnnsim/)
+[![Python versions](https://img.shields.io/pypi/pyversions/cnnsim.svg)](https://pypi.org/project/cnnsim/)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24574054.svg)](https://doi.org/10.5281/zenodo.24574054)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/thorstenkranz/cnnsim/blob/main/LICENSE)
 
 `cnnsim` simulates and trains **cellular neural networks** (CNNs) as introduced by Chua and Yang
