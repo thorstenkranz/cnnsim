@@ -1,7 +1,7 @@
 """Run the bundled templates on a synthetic image and save a figure.
 
-    python demo.py                  # -> output/templates.png
-    python demo.py --image foo.png  # use your own image (converted to grayscale)
+python demo.py                  # -> output/templates.png
+python demo.py --image foo.png  # use your own image (converted to grayscale)
 """
 
 import argparse
@@ -14,7 +14,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from cnnsim import CNNSimulator, templates as T
+from cnnsim import CNNSimulator
+from cnnsim import templates as T
 
 
 def synthetic(size=128) -> np.ndarray:
@@ -61,7 +62,7 @@ def main():
     fig, axes = plt.subplots(rows, cols, figsize=(3 * cols, 3.3 * rows))
     for ax in axes.flat:
         ax.axis("off")
-    for ax, (title, img) in zip(axes.flat, panels):
+    for ax, (title, img) in zip(axes.flat, panels, strict=False):
         ax.imshow(img, cmap="gray_r", vmin=-1, vmax=1, interpolation="nearest")
         ax.set_title(title, fontsize=10)
     fig.tight_layout()

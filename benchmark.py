@@ -87,8 +87,10 @@ def main():
     configs = [c for c in args.configs if CONFIGS[c][0] != "cuda" or torch.cuda.is_available()]
 
     gpu = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "none"
-    print(f"torch {torch.__version__} | GPU: {gpu} | CPU threads: {torch.get_num_threads()} "
-          f"| batch {args.batch} | chunk {args.chunk}")
+    print(
+        f"torch {torch.__version__} | GPU: {gpu} | CPU threads: {torch.get_num_threads()} "
+        f"| batch {args.batch} | chunk {args.chunk}"
+    )
     print("time per Euler step (whole batch); in brackets: throughput in Gcell-updates/s\n")
 
     w = 22

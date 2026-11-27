@@ -109,5 +109,6 @@ AVERAGE = Template(
     description="Smoothing / majority vote; noise removal on binary images.",
 )
 
-ALL = {t.name: t for t in [EDGE, EDGE_GRAY, CORNER, INVERSION, THRESHOLD, HOLE_FILL,
-                           SHADOW_LEFT, CCD_HORIZONTAL, AVERAGE]}
+ALL = {
+    t.name: t for t in [EDGE, EDGE_GRAY, CORNER, INVERSION, THRESHOLD, HOLE_FILL, SHADOW_LEFT, CCD_HORIZONTAL, AVERAGE]
+}

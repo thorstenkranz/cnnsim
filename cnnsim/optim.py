@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 import torch
 
@@ -25,7 +25,9 @@ from .train import Dynamics, LossFn, simulate
 Objective = Callable[[torch.Tensor], torch.Tensor]
 
 
-def objective(params: TemplateParams, loss_fn: LossFn, data: dict, dyn: Dynamics, chunk: int | None = None) -> Objective:
+def objective(
+    params: TemplateParams, loss_fn: LossFn, data: dict, dyn: Dynamics, chunk: int | None = None
+) -> Objective:
     """f(v) = loss of the templates encoded by vectors v (Q, n_free), evaluated without gradients."""
 
     @torch.no_grad()
@@ -73,7 +75,9 @@ def simulated_annealing(
         step, T = step0 * decay**it, T0 * decay**it
         y = x + step * torch.randn(x.shape, generator=gen, device=x.device, dtype=x.dtype)
         fy = f(y)
-        accept = (fy < fx) | (torch.rand(fx.shape, generator=gen, device=x.device) < torch.exp(-(fy - fx) / max(T, 1e-300)))
+        accept = (fy < fx) | (
+            torch.rand(fx.shape, generator=gen, device=x.device) < torch.exp(-(fy - fx) / max(T, 1e-300))
+        )
         x = torch.where(accept[:, None], y, x)
         fx = torch.where(accept, fy, fx)
         better = fx < best_f
@@ -136,11 +140,7 @@ def cmaes(
         ps = (1 - cs) * ps + math.sqrt(cs * (2 - cs) * mueff) * (invsqrtC @ yw)
         hsig = float(ps.norm() / math.sqrt(1 - (1 - cs) ** (2 * (g + 1))) / chiN < 1.4 + 2 / (n + 1))
         pc = (1 - cc) * pc + hsig * math.sqrt(cc * (2 - cc) * mueff) * yw
-        C = (
-            (1 - c1 - cmu) * C
-            + c1 * (torch.outer(pc, pc) + (1 - hsig) * cc * (2 - cc) * C)
-            + cmu * (ysel.T * w) @ ysel
-        )
+        C = (1 - c1 - cmu) * C + c1 * (torch.outer(pc, pc) + (1 - hsig) * cc * (2 - cc) * C) + cmu * (ysel.T * w) @ ysel
         C = 0.5 * (C + C.T)
         sigma *= math.exp((cs / damps) * (ps.norm().item() / chiN - 1))
     return OptResult(best_x.to(mean0.dtype), best_f.to(mean0.dtype), hist, evals, time.time() - t0)

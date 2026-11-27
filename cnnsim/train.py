@@ -16,8 +16,9 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable, Literal
+from typing import Literal
 
 import torch
 from torch.utils.checkpoint import checkpoint
@@ -63,7 +64,9 @@ def _steps_fn(dyn: Dynamics, n: int):
 def _initial(kind: X0 | torch.Tensor, u: torch.Tensor) -> torch.Tensor:
     if isinstance(kind, torch.Tensor):
         return kind
-    return {"input": u, "zero": torch.zeros_like(u), "ones": torch.ones_like(u), "minus_ones": -torch.ones_like(u)}[kind]
+    return {"input": u, "zero": torch.zeros_like(u), "ones": torch.ones_like(u), "minus_ones": -torch.ones_like(u)}[
+        kind
+    ]
 
 
 def simulate(
@@ -84,12 +87,14 @@ def simulate(
     shp = u.shape[1:]
     uu = u.unsqueeze(0).expand(P, D, *shp).reshape(P * D, *shp)
     xx = (x0 if x0 is not None else _initial(dyn.x0, u)).unsqueeze(0).expand(P, D, *shp).reshape(P * D, *shp)
-    rep = lambda t: t.repeat_interleave(D, dim=0)  # noqa: E731  (P,...) -> (P*D,...)
+    rep = lambda t: t.repeat_interleave(D, dim=0)
     bias = bias_map(uu, rep(B), rep(z).reshape(-1, 1, 1, 1), dyn.boundary_u or dyn.boundary)
     AA = rep(A)
 
-    use_fused = dyn.backend == "fused" and dyn.integrator == "euler" and fused.supported(
-        dyn.boundary, dyn.output, AA.shape[-1], *xx.shape[-2:], xx.device, xx.dtype
+    use_fused = (
+        dyn.backend == "fused"
+        and dyn.integrator == "euler"
+        and fused.supported(dyn.boundary, dyn.output, AA.shape[-1], *xx.shape[-2:], xx.device, xx.dtype)
     )
     grad = torch.is_grad_enabled() and (A.requires_grad or B.requires_grad or z.requires_grad)
     if use_fused and grad and not fused.prefer_for_training(dyn.boundary, AA.shape[-1]):
@@ -123,7 +128,9 @@ def settle_rate(x: torch.Tensor, bias: torch.Tensor, A: torch.Tensor, dyn: Dynam
     Small values mean the network has converged; usable as a regulariser."""
     P, D = x.shape[:2]
     shp = x.shape[2:]
-    dx = derivative(x.reshape(P * D, *shp), bias.reshape(P * D, *shp), A.repeat_interleave(D, 0), dyn.boundary, dyn.output)
+    dx = derivative(
+        x.reshape(P * D, *shp), bias.reshape(P * D, *shp), A.repeat_interleave(D, 0), dyn.boundary, dyn.output
+    )
     return dx.abs().reshape(P, -1).mean(1)
 
 
@@ -154,7 +161,9 @@ def _select(data: dict, idx: torch.Tensor) -> dict:
     return {k: (v[idx.to(v.device)] if isinstance(v, torch.Tensor) and v.dim() > 0 else v) for k, v in data.items()}
 
 
-def evaluate(params: TemplateParams, loss_fn: LossFn, data: dict, dyn: Dynamics, batch_size: int | None = None) -> torch.Tensor:
+def evaluate(
+    params: TemplateParams, loss_fn: LossFn, data: dict, dyn: Dynamics, batch_size: int | None = None
+) -> torch.Tensor:
     """Loss per candidate (P,) on `data` without gradients (sample-weighted over batches)."""
     n = data["u"].shape[0]
     total = 0.0

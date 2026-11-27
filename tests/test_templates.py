@@ -4,7 +4,8 @@ import numpy as np
 import pytest
 import torch
 
-from cnnsim import CNNSimulator, templates as T
+from cnnsim import CNNSimulator
+from cnnsim import templates as T
 from cnnsim.simulator import Boundary, correlate3x3
 
 DEV = "cuda" if torch.cuda.is_available() else "cpu"
@@ -119,8 +120,7 @@ def test_backends_agree(bkind):
 def test_modes_agree():
     m = bip(shapes())
     ref = CNNSimulator(device=DEV).run(T.HOLE_FILL, m, steps=400)["x"]
-    for kw in [dict(backend="conv"), dict(compile=True), dict(cuda_graph=True),
-               dict(compile=True, cuda_graph=True)]:
+    for kw in [dict(backend="conv"), dict(compile=True), dict(cuda_graph=True), dict(compile=True, cuda_graph=True)]:
         x = CNNSimulator(device=DEV, **kw).run(T.HOLE_FILL, m, steps=400)["x"]
         torch.testing.assert_close(x, ref, atol=1e-4, rtol=1e-4)
 

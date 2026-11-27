@@ -42,6 +42,7 @@ Changelog = "https://github.com/thorstenkranz/cnnsim/blob/main/CHANGELOG.md"
 [dependency-groups]
 dev = [
     "pytest>=8",
+    "ruff>=0.15",
     "numpy>=1.26",
     "matplotlib>=3.8",
     "pillow>=10",
@@ -56,6 +57,23 @@ packages = ["cnnsim"]
 
 [tool.hatch.build.targets.sdist]
 include = ["cnnsim", "tests", "demo.py", "benchmark.py", "README.md", "CHANGELOG.md", "LICENSE"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["*.md"]  # README examples are laid out by hand
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "RUF"]
+ignore = [
+    "E501",  # line length: the formatter wraps code; long strings and comments may stay
+    "E731",  # small lambdas assigned to names are fine
+    "E741",  # single-letter names (l, I) follow the maths
+    "RUF001", "RUF002", "RUF003",  # ×, −, – in docstrings and comments are intended
+]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["cnnsim.boundary.Boundary", "cnnsim.outputs.Output"]  # frozen dataclasses
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -17,8 +17,9 @@ training, use the differentiable functions in `cnnsim.dynamics`.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable, Literal
+from typing import Literal
 
 import torch
 
@@ -305,8 +306,10 @@ class CNNSimulator:
 
     def _run_steps(self, x: torch.Tensor, p: Prepared, dt: float, n: int) -> torch.Tensor:
         """n steps from state x in one uncompiled call (the remainder of a run)."""
-        if self.backend == "fused" and self.integrator == "euler" and fused.supported(
-            p.boundary, p.output, p.A.shape[-1], *x.shape[-2:], x.device, x.dtype
+        if (
+            self.backend == "fused"
+            and self.integrator == "euler"
+            and fused.supported(p.boundary, p.output, p.A.shape[-1], *x.shape[-2:], x.device, x.dtype)
         ):
             return fused.forward(x, p.bias, p.A, p.boundary, p.output, n, dt)[0]
         backend = "conv" if self.backend == "conv" else "stencil"
@@ -318,8 +321,10 @@ class CNNSimulator:
         advance.state() gives the current state. Building the stepper does the
         compilation / graph capture once, so repeated advance() calls are cheap.
         """
-        if self.backend == "fused" and self.integrator == "euler" and fused.supported(
-            p.boundary, p.output, p.A.shape[-1], *p.x.shape[-2:], p.x.device, p.x.dtype
+        if (
+            self.backend == "fused"
+            and self.integrator == "euler"
+            and fused.supported(p.boundary, p.output, p.A.shape[-1], *p.x.shape[-2:], p.x.device, p.x.dtype)
         ):
             cur = [p.x]
             k, bias, A = self.chunk, p.bias, p.A
@@ -356,5 +361,7 @@ class CNNSimulator:
 
 def run_template(template: Template, u: torch.Tensor, **kw) -> torch.Tensor:
     """Convenience: run a template with sensible defaults, return output y."""
-    sim_kw = {k: kw.pop(k) for k in list(kw) if k in ("device", "backend", "integrator", "compile", "cuda_graph", "chunk")}
+    sim_kw = {
+        k: kw.pop(k) for k in list(kw) if k in ("device", "backend", "integrator", "compile", "cuda_graph", "chunk")
+    }
     return CNNSimulator(**sim_kw).run(template, u, **kw)["y"]
